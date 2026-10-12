@@ -4,14 +4,16 @@ from app.schemas.common import DetectorTier
 
 
 class ModelInfo(BaseModel):
-    """Describes the loaded detector. Populated from Phase 3."""
+    """Describes the loaded detector."""
 
     name: str
     version: str
     tier: DetectorTier
+    description: str
+    tier_notice: str
     supports_heatmap: bool
     supports_video: bool
-    description: str
+    calibrated: bool  # False: the score is a heuristic score, not a calibrated probability
 
 
 class LimitsInfo(BaseModel):
