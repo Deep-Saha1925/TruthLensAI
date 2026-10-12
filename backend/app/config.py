@@ -45,13 +45,17 @@ class Settings(BaseSettings):
         default_factory=lambda: Path(tempfile.gettempdir()) / "truthlens-uploads"
     )
 
-    # Detector (consumed from Phase 3 onwards)
+    # Detector
     detector_backend: Literal["demo", "torch", "ensemble"] = "demo"
     model_path: Path | None = None
     model_meta_path: Path | None = None
     device: Literal["auto", "cpu", "cuda"] = "auto"
     uncertain_band_low: float = Field(0.35, ge=0, le=1)
     uncertain_band_high: float = Field(0.65, ge=0, le=1)
+    request_timeout_sec: float = Field(30, gt=0)
+    max_concurrent_analyses: int = Field(2, ge=1, le=16)
+    result_ttl_seconds: int = Field(900, ge=1)
+    result_store_max_entries: int = Field(200, ge=1)
 
     @field_validator("cors_origins", mode="before")
     @classmethod
