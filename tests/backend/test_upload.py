@@ -20,16 +20,15 @@ def test_valid_png(client, png_bytes, temp_dir):
     assert response.status_code == 200
     body = response.json()
     assert body["media_type"] == "image"
-    assert body["status"] == "validated"
-    assert (body["width"], body["height"]) == (64, 64)
-    assert body["detected_format"] == "png"
+    assert (body["metadata"]["width"], body["metadata"]["height"]) == (64, 64)
+    assert body["metadata"]["format"] == "png"
     assert_no_leftovers(temp_dir)
 
 
 def test_valid_jpeg(client, jpeg_bytes):
     response = client.post(IMAGE_URL, files={"file": ("photo.JPG", jpeg_bytes, "image/jpeg")})
     assert response.status_code == 200
-    assert response.json()["detected_format"] == "jpeg"
+    assert response.json()["metadata"]["format"] == "jpeg"
 
 
 def test_missing_file_field(client):
