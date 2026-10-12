@@ -1,7 +1,6 @@
-from enum import Enum, StrEnum
+from enum import Enum
 
-
-class MediaType(StrEnum):
+class MediaType(str, Enum):
     IMAGE = "image"
     VIDEO = "video"
 
