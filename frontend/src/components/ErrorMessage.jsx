@@ -1,6 +1,12 @@
 import { AlertTriangle, X } from 'lucide-react';
 
-export default function ErrorMessage({ title = 'Something went wrong', message, onDismiss }) {
+export default function ErrorMessage({
+  title = 'Something went wrong',
+  message,
+  requestId,
+  onDismiss,
+  onRetry,
+}) {
   return (
     <div
       role="alert"
@@ -10,6 +16,18 @@ export default function ErrorMessage({ title = 'Something went wrong', message, 
       <div className="min-w-0 flex-1">
         <p className="font-semibold">{title}</p>
         <p className="text-sm">{message}</p>
+        {requestId && (
+          <p className="mt-1 break-all text-xs opacity-80">Reference: {requestId}</p>
+        )}
+        {onRetry && (
+          <button
+            type="button"
+            onClick={onRetry}
+            className="mt-3 rounded-lg border border-danger-border px-3 py-1.5 text-sm font-medium hover:bg-black/10"
+          >
+            Try again
+          </button>
+        )}
       </div>
       {onDismiss && (
         <button
