@@ -21,6 +21,13 @@
   --info-bg: #e0f2fe;
   --info-fg: #0c4a6e;
   --info-border: #38bdf8;
+  --ok-bg: #dcfce7;
+  --ok-fg: #14532d;
+  --ok-border: #16a34a;
+
+  /* Solid colours for bars and chart markers. */
+  --flag: #dc2626;
+  --real: #16a34a;
 }
 
 .dark {
@@ -42,6 +49,12 @@
   --info-bg: #0c2a40;
   --info-fg: #bae6fd;
   --info-border: #0369a1;
+  --ok-bg: #0f2a1a;
+  --ok-fg: #bbf7d0;
+  --ok-border: #15803d;
+
+  --flag: #f87171;
+  --real: #4ade80;
 }
 
 @theme inline {
@@ -62,6 +75,11 @@
   --color-info-bg: var(--info-bg);
   --color-info-fg: var(--info-fg);
   --color-info-border: var(--info-border);
+  --color-ok-bg: var(--ok-bg);
+  --color-ok-fg: var(--ok-fg);
+  --color-ok-border: var(--ok-border);
+  --color-flag: var(--flag);
+  --color-real: var(--real);
   --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue",
     Arial, sans-serif;
 }
