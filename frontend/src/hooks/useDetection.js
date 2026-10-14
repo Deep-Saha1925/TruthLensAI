@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useReducer, useRef } from 'react';
 
 import { detectImage, detectVideo, isCancelled } from '../services/api.js';
+import { rememberMedia } from '../utils/mediaStore.js';
 
 export const initialDetectionState = {
   status: 'idle', // idle | uploading | analyzing | success | error
@@ -32,6 +33,8 @@ export function detectionReducer(state, action) {
 /**
  * Drives one upload + analysis at a time.
  * analyze() resolves with the result, or null if it failed, was cancelled or was superseded.
+ * On success the original file is remembered in browser memory so the results dashboard can
+ * show it (the server deletes uploads).
  */
 export function useDetection() {
   const [state, dispatch] = useReducer(detectionReducer, initialDetectionState);
@@ -64,6 +67,7 @@ export function useDetection() {
           },
         });
         if (id !== requestId.current) return null;
+        rememberMedia(result.id, file, kind);
         dispatch({ type: 'success', result });
         return result;
       } catch (error) {
