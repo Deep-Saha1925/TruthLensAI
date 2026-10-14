@@ -19,3 +19,24 @@ export function formatDuration(seconds) {
   const rest = String(whole % 60).padStart(2, '0');
   return `${minutes}:${rest}`;
 }
+
+/** 0.4188 -> "42%". Input is a probability in [0, 1]; out-of-range values are clamped. */
+export function formatPercent(probability, digits = 0) {
+  if (!Number.isFinite(probability)) return '—';
+  const clamped = Math.min(1, Math.max(0, probability));
+  return `${(clamped * 100).toFixed(digits)}%`;
+}
+
+/** Position in a video with tenths of a second: 4 -> "0:04.0", 65.4 -> "1:05.4" */
+export function formatTimestamp(seconds) {
+  if (!Number.isFinite(seconds) || seconds < 0) return '—';
+  const tenths = Math.round(seconds * 10);
+  const minutes = Math.floor(tenths / 600);
+  const rest = ((tenths % 600) / 10).toFixed(1).padStart(4, '0');
+  return `${minutes}:${rest}`;
+}
+
+export function formatDateTime(iso) {
+  const date = new Date(iso);
+  return Number.isNaN(date.getTime()) ? '—' : date.toLocaleString();
+}
