@@ -14,6 +14,9 @@ class ModelInfo(BaseModel):
     supports_heatmap: bool
     supports_video: bool
     calibrated: bool  # False: the score is a heuristic score, not a calibrated probability
+    source: str | None = None
+    license: str | None = None
+    evaluation: dict[str, float | str] | None = None
 
 
 class LimitsInfo(BaseModel):
