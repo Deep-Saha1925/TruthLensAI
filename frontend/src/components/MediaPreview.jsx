@@ -4,8 +4,9 @@ import { useEffect, useState } from 'react';
 /**
  * Local preview of the selected file via an object URL (nothing is uploaded).
  * Reports intrinsic size/duration through onInfo once the browser has decoded the header.
+ * `videoRef` lets a parent seek the player (used by the results dashboard).
  */
-export default function MediaPreview({ file, kind, onInfo }) {
+export default function MediaPreview({ file, kind, onInfo, videoRef }) {
   const [url, setUrl] = useState(null);
   const [failed, setFailed] = useState(false);
 
@@ -44,6 +45,7 @@ export default function MediaPreview({ file, kind, onInfo }) {
         />
       ) : (
         <video
+          ref={videoRef}
           src={url}
           controls
           playsInline
