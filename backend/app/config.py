@@ -56,6 +56,12 @@ class Settings(BaseSettings):
     max_concurrent_analyses: int = Field(2, ge=1, le=16)
     result_ttl_seconds: int = Field(900, ge=1)
     result_store_max_entries: int = Field(200, ge=1)
+    heatmap_enabled: bool = True
+    heatmap_max_side: int = Field(256, ge=64, le=1024)
+
+    # Video analysis
+    video_timeout_sec: float = Field(120, gt=0)
+    max_concurrent_video_analyses: int = Field(1, ge=1, le=8)
 
     @field_validator("cors_origins", mode="before")
     @classmethod
