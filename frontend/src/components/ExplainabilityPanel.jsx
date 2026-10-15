@@ -5,6 +5,7 @@ import {
   formatSignalValue,
   splitSignals,
 } from '../utils/resultPresentation.js';
+import HeatmapOverlay from './HeatmapOverlay.jsx';
 
 const SOURCE_LABEL = {
   heuristic: 'Heuristic measurement',
@@ -26,6 +27,8 @@ const LEAD = {
   TRAINED:
     "The items below describe what contributed to the model's score. They show where the score came from, not proof about the media.",
 };
+
+const NO_HEATMAP_FALLBACK = 'No heatmap is available for this result.';
 
 function SignalItem({ signal }) {
   const value = formatSignalValue(signal);
@@ -51,8 +54,19 @@ function SignalItem({ signal }) {
   );
 }
 
-/** Phase 8 will pass a real heatmap here for detectors that support one. Nothing is faked. */
-export default function ExplainabilityPanel({ explanation, notice, tier, mediaType }) {
+/**
+ * The heatmap appears only when the server returned one. Otherwise the server's own notice
+ * explains why not (unsupported detector, disabled, or failed). Nothing is drawn locally.
+ */
+export default function ExplainabilityPanel({
+  explanation,
+  notice,
+  tier,
+  mediaType,
+  heatmap,
+  heatmapNotice,
+  originalFile,
+}) {
   const { scored, context } = splitSignals(explanation);
 
   return (
@@ -85,12 +99,22 @@ export default function ExplainabilityPanel({ explanation, notice, tier, mediaTy
         </>
       )}
 
-      <h3 className="mt-5 text-sm font-semibold">Heatmap</h3>
-      <p className="mt-2 rounded-xl border border-dashed p-4 text-sm text-muted">
-        No heatmap is available for this result. Heatmaps are shown only when the active detector
-        can produce a reliable one, and a heatmap would show where a model looked, not proof of
-        manipulation.
-        {mediaType === 'video' && ' For videos, see the highest-scoring frames above.'}
+      <h3 className="mt-5 text-sm font-semibold">Heatmap (where the model looked)</h3>
+      {heatmap && (
+        <div className="mt-2">
+          <HeatmapOverlay heatmap={heatmap} file={originalFile} />
+        </div>
+      )}
+      <p
+        className={
+          heatmap
+            ? 'mt-3 text-sm text-muted'
+            : 'mt-2 rounded-xl border border-dashed p-4 text-sm text-muted'
+        }
+      >
+        {heatmapNotice ?? NO_HEATMAP_FALLBACK}
+        {!heatmap && mediaType === 'video' &&
+          ' Heatmaps are computed for images only; for videos, see the highest-scoring frames above.'}
       </p>
     </section>
   );
