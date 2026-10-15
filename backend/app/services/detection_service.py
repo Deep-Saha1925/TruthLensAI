@@ -12,8 +12,16 @@ from typing import TypeVar
 
 from app.config import Settings
 from app.ml.detector import MediaDetector
+from app.ml.explainability import (
+    HEATMAP_METHOD,
+    HEATMAP_NOTICES,
+    HEATMAP_TARGET,
+    output_size,
+    render_heatmap,
+)
 from app.ml.preprocessing import PreparedImage
-from app.schemas.image import ImageDetectionResponse, ImageMetadata, SignalOut
+from app.schemas.common import DetectorTier
+from app.schemas.image import HeatmapOut, ImageDetectionResponse, ImageMetadata, SignalOut
 from app.schemas.models_info import ModelInfo
 from app.services.result_store import ResultStore
 from app.utils.errors import AppError, InferenceTimeoutError, ModelError
@@ -47,6 +55,9 @@ def describe_detector(detector: MediaDetector) -> ModelInfo:
         supports_heatmap=capabilities.supports_heatmap,
         supports_video=capabilities.supports_video,
         calibrated=capabilities.calibrated,
+        source=info.source,
+        license=info.license,
+        evaluation=info.evaluation,
     )
 
 
@@ -79,6 +90,37 @@ class DetectionService:
             logger.error("Detector raised an exception", exc_info=exc)
             raise ModelError("The detector failed to analyze this media.") from exc
 
+    async def _explain(self, prepared: PreparedImage) -> tuple[HeatmapOut | None, str, str]:
+        """Returns (heatmap, status, notice). A heatmap problem never fails the analysis."""
+        if not self._detector.capabilities.supports_heatmap:
+            key = (
+                "unsupported_demo"
+                if self._detector.info.tier is DetectorTier.DEMO_HEURISTIC
+                else "unsupported"
+            )
+            return None, "unsupported", HEATMAP_NOTICES[key]
+        if not self._settings.heatmap_enabled:
+            return None, "disabled", HEATMAP_NOTICES["disabled"]
+
+        try:
+            cam = await self._run(self._detector.explain_image, prepared)
+            if cam is None:
+                return None, "failed", HEATMAP_NOTICES["failed"]
+            size = output_size(prepared.width, prepared.height, self._settings.heatmap_max_side)
+            rendered = render_heatmap(cam, size)
+        except Exception:  # includes AppError (timeouts, model errors)
+            logger.warning("Heatmap generation failed", exc_info=True)
+            return None, "failed", HEATMAP_NOTICES["failed"]
+
+        heatmap = HeatmapOut(
+            method=HEATMAP_METHOD,
+            target=HEATMAP_TARGET,
+            width=rendered.width,
+            height=rendered.height,
+            data_url=rendered.data_url,
+        )
+        return heatmap, "available", HEATMAP_NOTICES["available"]
+
     async def analyze_image(
         self, prepared: PreparedImage, *, size_bytes: int, started_at: float
     ) -> ImageDetectionResponse:
@@ -88,6 +130,8 @@ class DetectionService:
         if not isinstance(score, (int, float)) or not math.isfinite(score) or not 0.0 <= score <= 1.0:
             logger.error("Detector returned an invalid score: %r", score)
             raise ModelError("The detector returned an invalid result.")
+
+        heatmap, heatmap_status, heatmap_notice = await self._explain(prepared)
 
         ai_probability = round(float(score), 4)
         real_probability = round(1.0 - ai_probability, 4)
@@ -124,6 +168,9 @@ class DetectionService:
                 for s in prediction.signals
             ],
             explanation_notice=EXPLANATION_NOTICES[info.tier],
+            heatmap_status=heatmap_status,
+            heatmap_notice=heatmap_notice,
+            heatmap=heatmap,
             metadata=ImageMetadata(
                 width=prepared.width,
                 height=prepared.height,
