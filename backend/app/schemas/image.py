@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
@@ -11,6 +12,8 @@ from app.schemas.common import (
     SignalSource,
 )
 
+HeatmapStatus = Literal["available", "unsupported", "disabled", "failed"]
+
 
 class SignalOut(BaseModel):
     key: str
@@ -21,6 +24,14 @@ class SignalOut(BaseModel):
     value: float | None = None
     unit: str | None = None
     direction: SignalDirection
+
+
+class HeatmapOut(BaseModel):
+    method: Literal["grad-cam"]
+    target: str = Field(description="What the map explains")
+    width: int
+    height: int
+    data_url: str = Field(description="Transparent RGBA PNG overlay (derived data, not the image)")
 
 
 class ImageMetadata(BaseModel):
@@ -54,6 +65,9 @@ class ImageDetectionResponse(BaseModel):
     uncertain_band: tuple[float, float]
     explanation: list[SignalOut]
     explanation_notice: str
+    heatmap_status: HeatmapStatus
+    heatmap_notice: str
+    heatmap: HeatmapOut | None = None
     metadata: ImageMetadata
     created_at: datetime
     disclaimer: str
