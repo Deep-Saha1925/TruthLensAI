@@ -1,0 +1,6 @@
+-r requirements.txt
+torch>=2.2
+torchvision>=0.17
+transformers>=4.40
+safetensors>=0.4
+huggingface_hub>=0.23
