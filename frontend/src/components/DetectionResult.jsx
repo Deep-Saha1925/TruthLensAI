@@ -194,6 +194,9 @@ export default function DetectionResult({ result, media }) {
         notice={result.explanation_notice}
         tier={result.detector_tier}
         mediaType={result.media_type}
+        heatmap={result.heatmap ?? null}
+        heatmapNotice={result.heatmap_notice}
+        originalFile={media && media.kind === 'image' ? media.file : null}
       />
 
       <MetadataPanel result={result} />
@@ -201,7 +204,13 @@ export default function DetectionResult({ result, media }) {
       <details className="rounded-2xl border bg-surface p-4">
         <summary className="cursor-pointer font-medium">Raw response (JSON)</summary>
         <pre className="mt-3 max-h-96 overflow-auto rounded-lg bg-surface-2 p-3 text-xs">
-          {JSON.stringify(result, null, 2)}
+          {JSON.stringify(
+            result.heatmap
+              ? { ...result, heatmap: { ...result.heatmap, data_url: '(PNG data omitted here)' } }
+              : result,
+            null,
+            2,
+          )}
         </pre>
       </details>
 
