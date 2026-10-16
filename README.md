@@ -4,7 +4,7 @@ TruthLens AI is a full-stack web application that estimates how likely an upload
 
 > **AI detection is probabilistic. Results should not be treated as definitive proof of authenticity or manipulation.**
 
-> **Project status: Phase 6 of 10 complete.** See [Roadmap and phase log](#roadmap-and-phase-log). Sections marked **(planned)** describe features that do not exist yet.
+> **Project status: Phase 8 of 10 complete.** See [Roadmap and phase log](#roadmap-and-phase-log). Sections marked **(planned)** describe features that do not exist yet.
 
 ---
 
@@ -18,6 +18,7 @@ TruthLens AI is a full-stack web application that estimates how likely an upload
 6. [Project structure](#project-structure)
 7. [Installation and running](#installation-and-running)
 8. [Configuration](#configuration)
+   - [Using a real model (torch backend)](#using-a-real-model-torch-backend)
 9. [API documentation](#api-documentation)
 10. [Security design](#security-design)
 11. [Testing](#testing)
@@ -40,8 +41,11 @@ TruthLens AI is a full-stack web application that estimates how likely an upload
 | Honest labelling of detector quality (tier banner, `score_is_calibrated`, notices) | Working |
 | Drag-and-drop uploader, client-side validation, preview, upload progress, cancel, error handling | Working |
 | Light/dark theme, responsive layout, accessible components | Working |
-| Result dashboard with charts, timeline, metadata, explainability | **Planned (Phase 7)** |
-| Grad-CAM heatmaps (only for compatible models) and suspicious-frame view | **Planned (Phase 8)** |
+| Result dashboard: classification badge, confidence meter, real-vs-AI bars, score zones, risk level, technical metadata | Working |
+| Video timeline chart (Recharts) with the uncertain band, highest-scoring frames, click-to-seek in the original video, table alternative | Working |
+| "Why did the model predict this?" panel: scored signals separated from context-only items, source labels | Working |
+| PyTorch detector backend: loads a pretrained (Hugging Face) or trained (torchvision) model described by a `model_meta.json` (optional install, no weights shipped) | Working |
+| Grad-CAM heatmap overlay with opacity control, only for models whose layer supports it (capability-gated, never faked) | Working |
 | Training / evaluation pipeline | **Planned (Phase 9)** |
 | Docker, full test coverage, ensemble and forensics extras | **Planned (Phase 10)** |
 
@@ -59,7 +63,7 @@ Every API response and every UI page carries the tier of the detector that produ
 | `PRETRAINED_ML` | Off-the-shelf third-party classifier, not validated on this project's data. | Notice: generalization unknown. |
 | `TRAINED` | Checkpoint produced by this project's `training/` pipeline, shipped with an evaluation report. | Shows the model's measured metrics next to the result. |
 
-Only `DEMO_HEURISTIC` is implemented today. `PRETRAINED_ML` and `TRAINED` arrive with the torch backend (Phases 8–9).
+`DEMO_HEURISTIC` is the default. `PRETRAINED_ML` and `TRAINED` are available through the optional torch backend (see [Using a real model](#using-a-real-model-torch-backend)), but **the repository ships no model weights**: you supply them. A `TRAINED` model must carry an `evaluation` section in its metadata or it will not load; the training pipeline that produces one arrives in Phase 9.
 
 Other honesty rules built into the design:
 
@@ -169,7 +173,9 @@ Key design choices:
 | Frontend | JavaScript, React 18, Vite 7, Tailwind CSS v4, React Router 6, Axios, lucide-react, Vitest |
 | Backend | Python 3.10+, FastAPI, Uvicorn, Pydantic v2 + pydantic-settings, Pillow, OpenCV (headless), NumPy |
 | Testing | pytest, httpx (backend); Vitest (frontend) |
-| Planned | Recharts (Phase 7), PyTorch + torchvision (Phases 8–9), Docker + nginx (Phase 10) |
+| Charts | Recharts |
+| ML (optional) | PyTorch, torchvision, transformers, safetensors (`backend/requirements-torch.txt`) |
+| Planned | Docker + nginx (Phase 10) |
 
 ---
 
@@ -186,6 +192,8 @@ truthlens-ai/
 ├── backend/
 │   ├── requirements.txt
 │   ├── requirements-dev.txt
+│   ├── requirements-torch.txt     optional: PyTorch, torchvision, transformers
+│   ├── scripts/fetch_hf_model.py  download a Hugging Face model + write model_meta.json
 │   └── app/
 │       ├── __main__.py            run with: python -m app
 │       ├── main.py                app factory, middleware stack, lifespan
@@ -202,6 +210,9 @@ truthlens-ai/
 │       │   ├── video_sampling.py  two-pass frame sampler
 │       │   ├── preprocessing.py
 │       │   ├── model_loader.py    detector registry (plug-in point)
+│       │   ├── model_meta.py      model_meta.json schema and validation
+│       │   ├── torch_detector.py  PyTorch detector (optional install)
+│       │   ├── explainability.py  Grad-CAM and heatmap rendering
 │       │   └── forensics/image_features.py
 │       └── utils/                 errors, logging, media_types, scoring
 ├── frontend/
@@ -209,16 +220,19 @@ truthlens-ai/
 │   └── src/
 │       ├── components/            Navbar, ThemeToggle, UploadZone, MediaPreview,
 │       │                          DetectorTierBanner, DisclaimerNotice, ErrorMessage,
-│       │                          LoadingState, SkeletonCard
-│       ├── pages/                 Home, Results (basic), About, NotFound
+│       │                          LoadingState, SkeletonCard, ClassificationBadge, RiskBadge,
+│       │                          ConfidenceMeter, ProbabilityChart, VideoTimeline,
+│       │                          SuspiciousFrames, AggregationPanel, MetadataPanel,
+│       │                          ExplainabilityPanel, HeatmapOverlay, DetectionResult
+│       ├── pages/                 Home, Results (dashboard), About, NotFound
 │       ├── hooks/                 useTheme, useServerInfo, useDetection, useResult
 │       ├── services/api.js
-│       ├── utils/                 formatting, validation
+│       ├── utils/                 formatting, validation, resultPresentation, mediaStore, heatmap
 │       └── __tests__/
 └── tests/backend/                 pytest suite
 ```
 
-Planned additions: `training/` (Phase 9), `docker-compose*.yml` and Dockerfiles (Phase 10), `backend/app/ml/explainability.py` and `ensemble.py` (Phases 8 and 10), `docs/architecture.md`.
+Planned additions: `training/` (Phase 9), `docker-compose*.yml` and Dockerfiles (Phase 10), `backend/app/ml/ensemble.py` (Phase 10), `docs/architecture.md`.
 
 ---
 
@@ -267,7 +281,7 @@ In development, Vite proxies `/api` to `http://127.0.0.1:8000`, so no CORS setup
 
 1. Open the site. An amber **Prototype mode** banner confirms the demo detector is active.
 2. Drop in an image or short video and click **Analyze Media**.
-3. You are taken to `/results/<id>`. The dashboard is still basic (Phase 7 builds the full one) but shows the classification, probabilities, notices and the raw JSON.
+3. You are taken to `/results/<id>`. The dashboard shows the classification badge, confidence meter, real-vs-AI probability bars, risk level, metadata and the signals behind the score. For videos it adds the frame timeline and the highest-scoring frames (click one to jump to that moment in your original video).
 
 ---
 
@@ -289,9 +303,11 @@ All settings are environment variables (see `.env.example`). Invalid values stop
 | `MAX_VIDEO_DURATION_SEC` | `60` | Enforced on the real decoded frame count, not just metadata. |
 | `MAX_VIDEO_FRAMES_ANALYZED` | `24` | Frame budget per video. |
 | `TEMP_DIR` | `<system temp>/truthlens-uploads` | Randomly named temp files, always deleted. |
-| `DETECTOR_BACKEND` | `demo` | `demo` today. `torch`/`ensemble` are reserved for later phases; selecting them now puts the server in degraded mode. |
-| `MODEL_PATH`, `MODEL_META_PATH` | empty | For trained models (later phases). |
-| `DEVICE` | `auto` | `auto`, `cpu`, `cuda`. |
+| `DETECTOR_BACKEND` | `demo` | `demo` or `torch`. `ensemble` is reserved for Phase 10. If the selected backend cannot load, the server starts in degraded mode (`/api/health` returns 503). |
+| `MODEL_PATH`, `MODEL_META_PATH` | empty | Torch backend: the model directory (relative paths resolve from the repository root) and the metadata file (default `<MODEL_PATH>/model_meta.json`). |
+| `DEVICE` | `auto` | `auto`, `cpu`, `cuda`. `cuda` fails to load if CUDA is unavailable; `auto` falls back to CPU. |
+| `HEATMAP_ENABLED` | `true` | Turn heatmap generation off server-side (only matters for detectors that support it). |
+| `HEATMAP_MAX_SIDE` | `256` | Longest side, in pixels, of the heatmap PNG returned to the browser. |
 | `UNCERTAIN_BAND_LOW` / `_HIGH` | `0.35` / `0.65` | Scores inside the band are `UNCERTAIN`. |
 | `REQUEST_TIMEOUT_SEC` | `30` | Max wait for one image analysis. |
 | `MAX_CONCURRENT_ANALYSES` | `2` | Image inference worker threads. |
@@ -302,6 +318,82 @@ All settings are environment variables (see `.env.example`). Invalid values stop
 | `VITE_API_BASE_URL` | unset (`/api`) | Frontend only. Set a full URL only if the frontend is served separately. |
 
 ---
+
+## Using a real model (torch backend)
+
+The repository ships **no model weights**. The default `demo` detector needs no PyTorch. To use a real classifier you install the optional dependencies, put a model in a folder with a `model_meta.json`, and set two environment variables.
+
+### 1. Install the optional dependencies
+
+```bash
+# CPU-only PyTorch is far smaller than the default wheel:
+pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+pip install -r backend/requirements-torch.txt
+```
+
+A GPU is not required. For CUDA, install the matching PyTorch build from pytorch.org and set `DEVICE=auto` or `cuda`.
+
+### 2. Get a pretrained model from Hugging Face
+
+Read the model card first: check the **licence**, the training data and what the authors actually measured. Then, from `backend/`:
+
+```bash
+python scripts/fetch_hf_model.py --repo <owner>/<model> --revision <commit-hash> \
+    --license "<licence from the model card>" --out weights/my-model
+```
+
+The first run downloads the model and prints its labels, then asks you to re-run with `--synthetic-label <label>` naming the label(s) that mean "AI-generated". The script refuses models without `.safetensors` weights, pins nothing silently (use a commit hash for `--revision`), and writes `model_meta.json`.
+
+Candidate models found on Hugging Face (licences as stated on their cards when checked; **not evaluated by this project**; reported accuracy is on the authors' own data and does not transfer automatically):
+
+| Model | Stated licence | Notes from its card |
+|---|---|---|
+| `capcheck/ai-human-generated-image-detection` | Apache-2.0 | ViT fine-tune, binary human vs AI |
+| `NYUAD-ComNets/AI-generated_images_detector` | Apache-2.0 | Card reports 97.4% accuracy on its own validation split |
+| `SadraCoding/SDXL-Deepfake-Detector` | MIT | Fine-tuned on a faces dataset; narrow domain |
+| `Smogy/SMOGY-Ai-images-detector` | CC-BY-NC-4.0 (non-commercial) | Card says training data was scraped and may be copyrighted |
+
+Verify exact repository names and labels on Hugging Face before use.
+
+### 3. Point the app at it
+
+```ini
+DETECTOR_BACKEND=torch
+MODEL_PATH=backend/weights/my-model
+DEVICE=auto
+```
+
+Restart the backend. `/api/health` reports the loaded model, and the UI banner changes from "Prototype mode" to "Third-party model".
+
+### 4. `model_meta.json` reference
+
+The metadata file is the single source of truth for honest labelling. Unknown fields and inconsistent combinations are rejected at load time.
+
+| Field | Required | Meaning |
+|---|---|---|
+| `name`, `version`, `description` | yes | Shown in the API and UI |
+| `tier` | yes | `PRETRAINED_ML` or `TRAINED`. `TRAINED` requires a non-empty `evaluation` |
+| `kind` | yes | `huggingface` (a transformers model directory) or `torchvision` (a state dict) |
+| `synthetic_labels` | yes | Labels that mean AI-generated or manipulated. Must exist among the model's labels, so a mislabelled model cannot silently invert results |
+| `source`, `license` | no | Provenance, shown by `/api/models` |
+| `calibrated` | no (default `false`) | May be `true` only for `TRAINED` models |
+| `evaluation` | for `TRAINED` | Measured metrics (for example accuracy, F1, ROC-AUC) |
+| `architecture`, `class_names` | torchvision | A `torchvision.models` name and the ordered class names |
+| `weights_file` | torchvision | `.pt`, `.pth` or `.safetensors` inside the model directory (default `model.pt`) |
+| `input_size`, `mean`, `std` | torchvision | Must match how the model was trained |
+| `gradcam_layer` | no | Dotted name of a module whose output is an N x C x H x W feature map. Enables heatmaps |
+
+### 5. Heatmaps are capability-gated
+
+A heatmap appears only when the loaded model has a `gradcam_layer` whose output passes a start-up self-check. Convolutional networks usually qualify (`layer4` for ResNet, `features` for EfficientNet, ConvNeXt, MobileNet and DenseNet). Transformer models (ViT, Swin, SigLIP) produce token sequences rather than feature maps, so **most pretrained AI-image detectors will not have heatmaps**, and the UI says so instead of drawing one. A heatmap shows where the model looked, not proof of manipulation.
+
+### 6. Safety
+
+- Weights load from `.safetensors` or with `torch.load(weights_only=True)`; pickled code is never executed. `trust_remote_code` is always off.
+- Hugging Face models must ship `.safetensors`; pickle-only models are refused.
+- All torch inference in one process is serialized behind a lock (hooks used for heatmaps share model state).
+- Video analysis runs in a fresh process per video, which **reloads the model each time**. Expect video analysis with a torch model to take noticeably longer (a persistent worker is the future upgrade).
+
 
 ## API documentation
 
@@ -347,7 +439,9 @@ Base path: `/api`. Interactive docs at `/docs`.
 }
 ```
 
-Classification values are `LIKELY_REAL`, `UNCERTAIN`, `LIKELY_SYNTHETIC`. "Synthetic" covers AI-generated **or** manipulated media, because a binary detector cannot tell them apart.
+Classification values are `LIKELY_REAL`, `UNCERTAIN`, `LIKELY_SYNTHETIC`.
+
+Image responses also carry `heatmap_status` (`available`, `unsupported`, `disabled` or `failed`), a `heatmap_notice` explaining it in plain words, and, when available, `heatmap`: `{method: "grad-cam", target, width, height, data_url}` where `data_url` is a small transparent PNG overlay (derived data only, never the image itself). A failed heatmap never fails the analysis. `GET /api/models` additionally reports `source`, `license` and `evaluation` for the active detector when known. "Synthetic" covers AI-generated **or** manipulated media, because a binary detector cannot tell them apart.
 
 ### Video response (additional fields)
 
@@ -421,7 +515,7 @@ Run from the **repository root**, not from `backend/`. On Windows use `python -m
 python -m pytest -v
 ```
 
-Covers: health and models endpoints, CORS, request IDs, image upload (valid, empty, wrong extension, wrong MIME, renamed text file, truncated, oversized, path traversal, too small), rate limiting, response schema, detector behaviour and feature functions, preprocessing, scoring and risk rules, result store TTL/eviction, video sampling and aggregation, the killable process runner (timeout, crash, error propagation), and the video endpoint (valid, corrupted, too long, timeout, detector unavailable). Video tests take longer because they start real worker processes (roughly 20–60 s total).
+Covers: health and models endpoints, CORS, request IDs, image upload (valid, empty, wrong extension, wrong MIME, renamed text file, truncated, oversized, path traversal, too small), rate limiting, response schema, detector behaviour and feature functions, preprocessing, scoring and risk rules, result store TTL/eviction, video sampling and aggregation, the killable process runner (timeout, crash, error propagation), and the video endpoint (valid, corrupted, too long, timeout, detector unavailable). Video tests take longer because they start real worker processes (roughly 20–60 s total). Tests that need PyTorch (`test_torch_detector.py`) are skipped automatically when it is not installed; they use a tiny randomly initialised network to test the plumbing, not detection quality.
 
 ### Frontend (Vitest)
 
@@ -430,7 +524,7 @@ cd frontend
 npm test
 ```
 
-Covers file validation, formatting, API error mapping and retry rules, and the detection state-machine reducer. Component tests with React Testing Library are planned for Phase 10.
+Covers file validation, formatting, API error mapping and retry rules, the detection state-machine reducer, and the dashboard's presentation logic (percent splitting, score zones, timeline data, signal grouping, the in-memory media store). Component tests with React Testing Library are planned for Phase 10.
 
 ---
 
@@ -476,6 +570,14 @@ Specific to the current build:
 - Analysis progress is indeterminate (the backend has no job/polling API); only the upload shows real progress.
 - Results are in server memory: they expire after `RESULT_TTL_SECONDS` and are lost on restart.
 - The rate limiter is per process.
+- The original media is shown on the results page only in the browser session that uploaded it (it is held in browser memory, never on the server). After a refresh, or when opening a shared link, the dashboard shows the scores without the original, and "jump to this moment" is unavailable.
+- Jumping to a frame needs a video format your browser can play; AVI and MKV usually cannot be previewed.
+- The video timeline chart is not keyboard-navigable (a table with the same values is provided). Frame thumbnails are not generated.
+- Percentages are the detector's raw score unless `score_is_calibrated` is true; the dashboard says so.
+- Heatmaps exist only for models with a convolutional `gradcam_layer`. The demo detector measures whole-image statistics and has no regions to highlight; most pretrained transformer detectors have none either. Grad-CAM can highlight irrelevant regions and is not proof of manipulation.
+- The repository ships no model weights. A pretrained detector may be wrong on your images, especially newer generators, screenshots and recompressed files.
+- With the torch backend, video analysis reloads the model in a fresh process for every video, and inference is serialized behind a lock, so concurrency is low.
+- Heatmaps are computed for images only, not per video frame.
 
 ---
 
@@ -486,6 +588,7 @@ Specific to the current build:
 - Detection tools can be used to dismiss genuine evidence ("it's probably AI"). Communicate uncertainty plainly.
 - Uploads may contain personal data. Files are deleted after analysis, EXIF contents (such as GPS) are never read out or returned (only the presence of EXIF is reported), and results contain scores and technical metadata only. If you deploy this publicly, add a privacy notice and review applicable law.
 - This is a student/portfolio project, not a forensic tool.
+- Third-party detector models have their own licences (some are non-commercial) and training data (some scraped). Check both before use, and record them in `model_meta.json`.
 
 ---
 
@@ -505,6 +608,13 @@ Specific to the current build:
 | `503 SERVER_BUSY` | Raise `MAX_CONCURRENT_VIDEO_ANALYSES` (each job uses its own process and RAM). |
 | Results page says "not found or expired" | Results live only in memory for `RESULT_TTL_SECONDS` and vanish on restart. |
 | AVI/MKV shows "browser cannot preview" | Expected: browsers cannot decode those containers. The file can still be analyzed. |
+| Results page says the original is not shown | By design: uploads are deleted from the server, and the browser only remembers the file for the session that analyzed it. Refreshing or opening a link loses it. |
+| Timeline chart is blank or "width(0) and height(0)" warning | The chart's parent has no size (for example inside a hidden element). The dashboard gives it a fixed height; check any custom layout changes. |
+| Dashboard colours look wrong or `bg-flag` / `bg-real` do nothing | `frontend/src/index.css` is missing the Phase 7 colour tokens (`--ok-*`, `--flag`, `--real`). |
+| `/api/health` returns 503 after setting `DETECTOR_BACKEND=torch` | See the server log. Common causes: PyTorch not installed, `MODEL_PATH` unset or not a directory, missing `model_meta.json`, `synthetic_labels` not among the model's labels, or weights that do not match the architecture. |
+| "PyTorch support is not installed" in the log | `pip install -r backend/requirements-torch.txt` (CPU wheels: see the install section). |
+| Model refuses to load: safetensors | The Hugging Face repo only ships pickled `.bin` weights. These are refused for safety; pick another model. |
+| Result shows "No heatmap" with a torch model | Expected for transformer models, or when `gradcam_layer` is unset or its output is not a 4-D feature map. |
 
 ---
 
@@ -518,13 +628,15 @@ Specific to the current build:
 | 4 | Video metadata, frame sampling, aggregation, killable worker process, video detection API | Done |
 | 5 | React + Vite + Tailwind shell, theme, uploader, client-side validation, preview | Done |
 | 6 | Axios service, `useDetection`, loading/error states, results route (basic) | Done |
-| 7 | Results dashboard: badge, meters, charts, video timeline, metadata, signals | Next |
-| 8 | Explainability: Grad-CAM for compatible models, suspicious frames, capability gating | Planned |
-| 9 | Training pipeline: group-aware split, train, evaluate, export | Planned |
+| 7 | Results dashboard: badge, meters, charts, video timeline, metadata, signals | Done |
+| 8 | Torch backend, model metadata, Grad-CAM heatmaps (capability-gated), heatmap overlay | Done |
+| 9 | Training pipeline: group-aware split, train, evaluate, export | Next |
 | 10 | Tests, Docker, ensemble/forensics extras, `.webm`/`.mkv` frame-count fallback, final polish | Planned |
 
 ### Phase log
 
+- **Phase 8:** Added the optional `torch` detector backend (Hugging Face and torchvision models), a validated `model_meta.json` (tier, labels, licence, evaluation; `TRAINED` requires evaluation), Grad-CAM with a per-model self-check, the heatmap fields in image responses, the overlay with opacity control and a text legend in the dashboard, and a Hugging Face download script that refuses pickle-only models. Heatmaps stay off for detectors that cannot produce them. New optional dependencies in `requirements-torch.txt`; the base install is unchanged.
+- **Phase 7:** Added the results dashboard: classification badge (icon plus text), confidence meter on a 50–100% scale, real-vs-AI bars with numeric labels, a score-zone strip showing where the score falls relative to the uncertain band, risk badge, metadata panel, signals panel separating scored from context-only items, and for videos a Recharts timeline with the uncertain band and threshold, a table alternative, highest-scoring frame cards, and sampling/aggregation details. The original media is kept in browser memory for click-to-seek. Added the `recharts` dependency (run `npm install`). Backend unchanged.
 - **Phase 6:** Added real uploads with progress and cancel, stale-response protection, `Retry-After` handling, retry only for retryable errors, result loading via `GET /api/results/{id}` after refresh, loading skeletons. Fixed the About link to use the router.
 - **Phase 5:** Added the frontend shell, theme, uploader with client-side validation, preview, tier banner and disclaimer, About page.
 - **Phase 4:** Added video analysis in a killable process, two-pass sampling (uniform plus scene cuts), documented aggregation, video response schema.
