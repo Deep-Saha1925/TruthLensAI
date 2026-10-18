@@ -1,9 +1,9 @@
 # Python
 __pycache__/
 *.py[cod]
-myenv/
 .venv/
 venv/
+myenv/
 .pytest_cache/
 .coverage
 htmlcov/
@@ -14,14 +14,16 @@ htmlcov/
 .env.*
 !.env.example
 
-# Model weights and data (never commit)
+# Model weights, datasets and training runs (never commit)
 backend/weights/*
 !backend/weights/.gitkeep
-dataset/
+dataset*/
+raw*/
 runs/
 *.pt
 *.pth
 *.ckpt
+*.safetensors
 
 # Node
 node_modules/
