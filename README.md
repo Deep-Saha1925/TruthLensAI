@@ -4,7 +4,7 @@ TruthLens AI is a full-stack web application that estimates how likely an upload
 
 > **AI detection is probabilistic. Results should not be treated as definitive proof of authenticity or manipulation.**
 
-> **Project status: Phase 8 of 10 complete.** See [Roadmap and phase log](#roadmap-and-phase-log). Sections marked **(planned)** describe features that do not exist yet.
+> **Project status: Phase 9 of 10 complete.** See [Roadmap and phase log](#roadmap-and-phase-log). Sections marked **(planned)** describe features that do not exist yet.
 
 ---
 
@@ -23,7 +23,7 @@ TruthLens AI is a full-stack web application that estimates how likely an upload
 10. [Security design](#security-design)
 11. [Testing](#testing)
 12. [Docker (planned)](#docker-planned)
-13. [Dataset preparation and training (planned)](#dataset-preparation-and-training-planned)
+13. [Dataset preparation and training](#dataset-preparation-and-training)
 14. [Limitations](#limitations)
 15. [Ethical considerations](#ethical-considerations)
 16. [Troubleshooting](#troubleshooting)
@@ -46,7 +46,8 @@ TruthLens AI is a full-stack web application that estimates how likely an upload
 | "Why did the model predict this?" panel: scored signals separated from context-only items, source labels | Working |
 | PyTorch detector backend: loads a pretrained (Hugging Face) or trained (torchvision) model described by a `model_meta.json` (optional install, no weights shipped) | Working |
 | Grad-CAM heatmap overlay with opacity control, only for models whose layer supports it (capability-gated, never faked) | Working |
-| Training / evaluation pipeline | **Planned (Phase 9)** |
+| Training pipeline: group-aware dataset splitting, augmentation, class balancing, checkpoints, evaluation (accuracy, precision, recall, F1, ROC-AUC, confusion matrix, calibration error, robustness to compression/resizing/blur), export to a loadable `TRAINED` model | Working |
+| "Measured performance of this model" panel on the results page (for models that carry an `evaluation`) | Working |
 | Docker, full test coverage, ensemble and forensics extras | **Planned (Phase 10)** |
 
 **Important:** the only detector currently included is a **demo heuristic** (see below). It is not a trained AI detector and has no demonstrated accuracy. It exists so the whole application can run end to end until a real model is plugged in.
@@ -63,7 +64,7 @@ Every API response and every UI page carries the tier of the detector that produ
 | `PRETRAINED_ML` | Off-the-shelf third-party classifier, not validated on this project's data. | Notice: generalization unknown. |
 | `TRAINED` | Checkpoint produced by this project's `training/` pipeline, shipped with an evaluation report. | Shows the model's measured metrics next to the result. |
 
-`DEMO_HEURISTIC` is the default. `PRETRAINED_ML` and `TRAINED` are available through the optional torch backend (see [Using a real model](#using-a-real-model-torch-backend)), but **the repository ships no model weights**: you supply them. A `TRAINED` model must carry an `evaluation` section in its metadata or it will not load; the training pipeline that produces one arrives in Phase 9.
+`DEMO_HEURISTIC` is the default. `PRETRAINED_ML` and `TRAINED` are available through the optional torch backend (see [Using a real model](#using-a-real-model-torch-backend)), but **the repository ships no model weights**: you supply them. A `TRAINED` model must carry an `evaluation` section in its metadata or it will not load; the [training pipeline](#dataset-preparation-and-training) produces one.
 
 Other honesty rules built into the design:
 
@@ -174,14 +175,14 @@ Key design choices:
 | Backend | Python 3.10+, FastAPI, Uvicorn, Pydantic v2 + pydantic-settings, Pillow, OpenCV (headless), NumPy |
 | Testing | pytest, httpx (backend); Vitest (frontend) |
 | Charts | Recharts |
-| ML (optional) | PyTorch, torchvision, transformers, safetensors (`backend/requirements-torch.txt`) |
+| ML (optional) | PyTorch, torchvision, transformers, safetensors (`backend/requirements-torch.txt`); matplotlib for optional plots (`backend/requirements-train.txt`) |
 | Planned | Docker + nginx (Phase 10) |
 
 ---
 
 ## Project structure
 
-Files that exist today (after Phase 6):
+Files that exist today (after Phase 9):
 
 ```
 truthlens-ai/
@@ -194,6 +195,8 @@ truthlens-ai/
 │   ├── requirements-dev.txt
 │   ├── requirements-torch.txt     optional: PyTorch, torchvision, transformers
 │   ├── scripts/fetch_hf_model.py  download a Hugging Face model + write model_meta.json
+│   ├── scripts/make_dummy_model.py  RANDOM weights, only for testing the heatmap UI
+│   ├── requirements-train.txt     optional: adds matplotlib for training plots
 │   └── app/
 │       ├── __main__.py            run with: python -m app
 │       ├── main.py                app factory, middleware stack, lifespan
@@ -229,10 +232,11 @@ truthlens-ai/
 │       ├── services/api.js
 │       ├── utils/                 formatting, validation, resultPresentation, mediaStore, heatmap
 │       └── __tests__/
+├── training/                      split, train, evaluate, export (see the training section)
 └── tests/backend/                 pytest suite
 ```
 
-Planned additions: `training/` (Phase 9), `docker-compose*.yml` and Dockerfiles (Phase 10), `backend/app/ml/ensemble.py` (Phase 10), `docs/architecture.md`.
+Planned additions: `docker-compose*.yml` and Dockerfiles (Phase 10), `backend/app/ml/ensemble.py` (Phase 10), `docs/architecture.md`.
 
 ---
 
@@ -515,7 +519,7 @@ Run from the **repository root**, not from `backend/`. On Windows use `python -m
 python -m pytest -v
 ```
 
-Covers: health and models endpoints, CORS, request IDs, image upload (valid, empty, wrong extension, wrong MIME, renamed text file, truncated, oversized, path traversal, too small), rate limiting, response schema, detector behaviour and feature functions, preprocessing, scoring and risk rules, result store TTL/eviction, video sampling and aggregation, the killable process runner (timeout, crash, error propagation), and the video endpoint (valid, corrupted, too long, timeout, detector unavailable). Video tests take longer because they start real worker processes (roughly 20–60 s total). Tests that need PyTorch (`test_torch_detector.py`) are skipped automatically when it is not installed; they use a tiny randomly initialised network to test the plumbing, not detection quality.
+Covers: health and models endpoints, CORS, request IDs, image upload (valid, empty, wrong extension, wrong MIME, renamed text file, truncated, oversized, path traversal, too small), rate limiting, response schema, detector behaviour and feature functions, preprocessing, scoring and risk rules, result store TTL/eviction, video sampling and aggregation, the killable process runner (timeout, crash, error propagation), and the video endpoint (valid, corrupted, too long, timeout, detector unavailable). Video tests take longer because they start real worker processes (roughly 20–60 s total). Tests that need PyTorch (`test_torch_detector.py`) are skipped automatically when it is not installed; they use a tiny randomly initialised network to test the plumbing, not detection quality. The training tests (`tests/training/`) build a toy dataset on the fly: the splitting, metrics and augmentation tests run without PyTorch, and the train/evaluate/export tests skip when it is missing.
 
 ### Frontend (Vitest)
 
@@ -524,7 +528,7 @@ cd frontend
 npm test
 ```
 
-Covers file validation, formatting, API error mapping and retry rules, the detection state-machine reducer, and the dashboard's presentation logic (percent splitting, score zones, timeline data, signal grouping, the in-memory media store). Component tests with React Testing Library are planned for Phase 10.
+Covers file validation, formatting, API error mapping and retry rules, the detection state-machine reducer, and the dashboard's presentation logic (percent splitting, score zones, timeline data, signal grouping, the in-memory media store) and the parsing of a model's measured performance. Component tests with React Testing Library are planned for Phase 10.
 
 ---
 
@@ -534,16 +538,115 @@ Planned for Phase 10: `docker compose up --build` using a CPU-only backend image
 
 ---
 
-## Dataset preparation and training (planned)
+## Dataset preparation and training
 
-Planned for Phase 9 (`training/`): group-aware dataset splitting, augmentation, class balancing, checkpoint saving, evaluation (accuracy, precision, recall, F1, ROC-AUC, confusion matrix, calibration check, robustness to JPEG compression and resizing), and an export step that writes the weights plus a metadata file the backend reads. **Not implemented yet.**
+The `training/` package turns a folder of images into a `TRAINED` detector that the backend loads like any other model. The repository ships **no dataset and no trained weights**; `training/DATASETS.md` lists where public data can be found and what to check first.
 
-The design rules that will apply:
+```mermaid
+flowchart LR
+    R[raw_data/real, raw_data/fake] --> S[split_dataset<br/>group-aware split<br/>+ manifest + report]
+    S --> D[dataset/train, validation, test<br/>split_manifest.csv]
+    D --> T[train<br/>augment, balance,<br/>checkpoint, early stop]
+    T --> E[evaluate<br/>metrics + robustness<br/>on the test split]
+    E --> X[export_checkpoint<br/>model.pt + model_meta.json]
+    X --> B[backend<br/>DETECTOR_BACKEND=torch]
+```
 
-- **Folder layout:** `dataset/{train,validation,test}/{real,fake}/`. An optional three-class mode (`real`, `ai_generated`, `manipulated`) is planned.
-- **Dataset leakage:** near-duplicates in different splits inflate test scores. Splits must be made by **group ID** (original video, source image, identity, generator/prompt batch), never by individual file. For video, all frames from one video must stay in one split.
-- **Do not bundle copyrighted datasets.** The project will document where public datasets can be obtained and how to place them in the expected structure.
-- **Do not rely on accuracy alone.**
+Install the extras (PyTorch first, see [Using a real model](#using-a-real-model-torch-backend)), then `pip install -r backend/requirements-train.txt`. Run every command from the **repository root** with `python -m training.<module>`.
+
+### Quick start with toy data (no real dataset needed)
+
+This proves the whole pipeline works. The toy images are synthetic patterns, so the resulting model is **not a real detector**.
+
+```bash
+python -m training.make_sample_dataset --out raw_sample
+python -m training.split_dataset --source raw_sample --out dataset_sample --group-by prefix --group-regex "^(.*?)__"
+python -m training.train --data-dir dataset_sample --output-dir runs/sample --no-pretrained --epochs 3 --input-size 64 --num-workers 0
+python -m training.evaluate --run runs/sample
+python -m training.export_checkpoint --run runs/sample --out backend/weights/sample-toy --name sample-toy --version 0.0.1 --dataset-note "TOY synthetic data (make_sample_dataset); not a real detector" --force-small-test-set
+```
+
+Then set `DETECTOR_BACKEND=torch` and `MODEL_PATH=backend/weights/sample-toy` in `.env`. The export attaches a warning to the evaluation and the results page displays it.
+
+### Dataset layout
+
+Put your images in a raw folder with one subfolder per class (`real` and `fake`; "fake" means AI-generated or manipulated):
+
+```
+raw_data/
+  real/...   (any depth)
+  fake/...
+```
+
+`split_dataset` produces the layout the trainer expects, plus a manifest:
+
+```
+dataset/
+  train/{real,fake}/        validation/{real,fake}/        test/{real,fake}/
+  split_manifest.csv        split_report.json
+```
+
+### Why splits must be group-aware (dataset leakage)
+
+If near-identical images land in both train and test, the test score measures memorization, not detection. Typical leaks: frames from the same video, several crops or edits of one source photo, a fake generated from a real image that is also in the data, the same prompt batch, the same person.
+
+`split_dataset` therefore splits by **group**, never by file:
+
+- `--group-by parent` uses the subfolder under `real/` or `fake/` as the group (for example one folder per video).
+- `--group-by prefix` takes the group from the file name with `--group-regex` (default `^(.*?)__`, so `video001__f000120.jpg` has group `video001`). The same group id in `real/` and `fake/` stays together, which is what you want for paired data such as a face swap and its source video.
+- `--group-by file` makes every file its own group. Only safe if you know the data has no near-duplicates.
+- **Identical files** (same SHA-256) in different groups are merged into one group automatically, so they cannot straddle splits.
+- **Near-duplicates** can be merged too: `--near-duplicate-distance 4` compares tiny perceptual hashes (practical up to about 20,000 images).
+- The split is greedy, seeded and deterministic, and balances both classes across splits. Every split must contain both classes or the script stops.
+- The report warns about **shortcut risks**: if the classes differ strongly in file format or image size (for example real photos are JPEG and generated images are PNG), a model can learn the format instead of the content. Fix the data, not the model.
+- `training.train` re-checks the manifest and refuses to run if a group appears in more than one split. Without a manifest it warns loudly (`--require-manifest` makes that an error).
+
+### Video datasets
+
+Never put frames from one video in different splits. Extract frames with the same sampling the server uses, then split by video:
+
+```bash
+python -m training.extract_video_frames --videos raw_videos/real --out raw_data/real --frames-per-video 16
+python -m training.extract_video_frames --videos raw_videos/fake --out raw_data/fake --frames-per-video 16
+python -m training.split_dataset --source raw_data --out dataset --group-by prefix
+```
+
+Frames are named `<video>__f<index>.jpg`, so every frame of a video shares one group. If a fake video is derived from a real one, rename it so both share the same source id before the `__`.
+
+### Training
+
+```bash
+python -m training.train --data-dir dataset --output-dir runs/exp1 --architecture resnet50 --epochs 10
+```
+
+- **Same preprocessing as the server.** Training imports the backend's own decoding and resize/normalize code, so there is no train/serve skew.
+- **Augmentation is class-agnostic** (random crop, flip, downscale, blur, small colour change, JPEG compression) and runs before preprocessing. Compression is applied to both classes equally so it cannot become a shortcut. Disable with `--no-augment`.
+- **Class balancing:** `--balance loss` (default, weighted loss), `sampler` (weighted sampling) or `none`.
+- **Architectures:** `resnet18/34/50`, `efficientnet_b0`, `convnext_tiny`, `mobilenet_v3_large`, `densenet121`. ImageNet-pretrained initialization is the default (`--no-pretrained` to disable); those initial weights are third-party.
+- **Checkpoints:** `best.pt` (best validation ROC-AUC), `last.pt` (resume with `--resume`), `history.json`, `config.json`. Early stopping with `--patience`.
+- It refuses to write into a non-empty run directory unless you pass `--resume`.
+
+### Evaluation
+
+```bash
+python -m training.evaluate --run runs/exp1
+```
+
+Run on the **test** split, once, after you stop tuning. It reports accuracy, precision, recall, F1 (fake is the positive class, 0.5 cut-off), ROC-AUC, the confusion matrix, expected calibration error and Brier score, the share of images that would be shown as "uncertain" and the accuracy on the rest, and a **robustness** table: the same test images after JPEG compression (quality 90/70/50), downscaling (50%, 25%) and blur. Results go to `evaluation_test.json` (and ROC / confusion-matrix PNGs if matplotlib is installed). Metrics on undefined cases (for example precision with no predicted fakes) are reported as missing rather than as 0.
+
+### Export to the backend
+
+```bash
+python -m training.export_checkpoint --run runs/exp1 --out backend/weights/my-detector --name my-detector --version 1.0.0 --dataset-note "what the data was" --license "licence of your data and weights"
+```
+
+Export refuses to continue if the test split has fewer than 200 images (`--min-test-images`) unless you pass `--force-small-test-set`, which adds an explicit warning to the metrics. It writes `model.pt` and a `model_meta.json` with tier `TRAINED`, the measured metrics, the class order, normalization and the Grad-CAM layer for the architecture, then loads the result with the backend's own loader as a final check. `calibrated` stays `false`: the metrics include a calibration error, but no calibration step is applied, so the UI does not claim probabilities.
+
+The results page shows these metrics in a **Measured performance** panel whenever the active model carries them.
+
+### What the numbers do and do not mean
+
+They describe this model on this test split. They do not transfer automatically to other generators, cameras, platforms, or recompressed copies, and a test set drawn from the same source as the training data will flatter the model. Treat a large gap between the original and the robustness rows as the real signal. See `training/DATASETS.md` for generalization tests (train on some generators, test on others).
 
 ---
 
@@ -578,6 +681,9 @@ Specific to the current build:
 - The repository ships no model weights. A pretrained detector may be wrong on your images, especially newer generators, screenshots and recompressed files.
 - With the torch backend, video analysis reloads the model in a fresh process for every video, and inference is serialized behind a lock, so concurrency is low.
 - Heatmaps are computed for images only, not per video frame.
+- The training pipeline is binary (`real` vs `fake`): it cannot tell AI-generated from manipulated media. Group-aware splitting prevents the leaks it can see (shared group ids, identical files, optionally near-duplicates); it cannot know about duplicates it was not told about.
+- No calibration step is applied, so exported models always report `calibrated: false`.
+- Training runs on CPU or a single GPU with no mixed precision, distributed training or hyperparameter search. Class balancing handles label imbalance, not imbalance between generators.
 
 ---
 
@@ -589,6 +695,7 @@ Specific to the current build:
 - Uploads may contain personal data. Files are deleted after analysis, EXIF contents (such as GPS) are never read out or returned (only the presence of EXIF is reported), and results contain scores and technical metadata only. If you deploy this publicly, add a privacy notice and review applicable law.
 - This is a student/portfolio project, not a forensic tool.
 - Third-party detector models have their own licences (some are non-commercial) and training data (some scraped). Check both before use, and record them in `model_meta.json`.
+- Training data about people (faces especially) needs a lawful basis and, usually, consent. Evaluate any trained model for uneven error rates across skin tones, ages and image styles before relying on it.
 
 ---
 
@@ -615,6 +722,13 @@ Specific to the current build:
 | "PyTorch support is not installed" in the log | `pip install -r backend/requirements-torch.txt` (CPU wheels: see the install section). |
 | Model refuses to load: safetensors | The Hugging Face repo only ships pickled `.bin` weights. These are refused for safety; pick another model. |
 | Result shows "No heatmap" with a torch model | Expected for transformer models, or when `gradcam_layer` is unset or its output is not a 4-D feature map. |
+| `split_dataset` stops with "does not match --group-regex" | A file name lacks the `__` separator. Rename the files, change `--group-regex`, or use `--group-by parent` or `file`. |
+| `split_dataset` says a split lacks a class | Too few groups. Each split needs at least one group per class; add data or use smaller `--ratios`. |
+| Training stops with a leakage error | A group appears in more than one split in `split_manifest.csv`. Re-run the split instead of editing folders by hand. |
+| Training warns there is no `split_manifest.csv` | The data was not split by this project. Leakage cannot be checked; add `--require-manifest` to forbid that. |
+| `export_checkpoint` refuses: test split too small | Fewer than 200 test images. Use more data, or `--force-small-test-set` for a demo (a warning is attached to the metrics). |
+| DataLoader errors on Windows with `--num-workers` above 0 | Use `--num-workers 0`. |
+| Validation ROC-AUC shows as missing | The validation split has only one class. Re-split with more groups. |
 
 ---
 
@@ -630,11 +744,12 @@ Specific to the current build:
 | 6 | Axios service, `useDetection`, loading/error states, results route (basic) | Done |
 | 7 | Results dashboard: badge, meters, charts, video timeline, metadata, signals | Done |
 | 8 | Torch backend, model metadata, Grad-CAM heatmaps (capability-gated), heatmap overlay | Done |
-| 9 | Training pipeline: group-aware split, train, evaluate, export | Next |
-| 10 | Tests, Docker, ensemble/forensics extras, `.webm`/`.mkv` frame-count fallback, final polish | Planned |
+| 9 | Training pipeline: group-aware split, train, evaluate, export, measured-performance panel | Done |
+| 10 | Tests, Docker, ensemble/forensics extras, `.webm`/`.mkv` frame-count fallback, final polish | Next |
 
 ### Phase log
 
+- **Phase 9:** Added the `training/` package: group-aware splitting with a manifest and report (identical-file and optional near-duplicate merging, shortcut audit), video frame extraction using the server's sampler, a class-agnostic augmentation pipeline, training with class balancing, checkpoints, resume and early stopping, evaluation with accuracy, precision, recall, F1, ROC-AUC, confusion matrix, calibration error and a robustness table, and an export step (minimum test-set size, loadability check) that writes a `TRAINED` model with a heatmap layer. The results page gained a Measured performance panel. A toy dataset generator lets you run the whole pipeline without data. Backend runtime unchanged.
 - **Phase 8:** Added the optional `torch` detector backend (Hugging Face and torchvision models), a validated `model_meta.json` (tier, labels, licence, evaluation; `TRAINED` requires evaluation), Grad-CAM with a per-model self-check, the heatmap fields in image responses, the overlay with opacity control and a text legend in the dashboard, and a Hugging Face download script that refuses pickle-only models. Heatmaps stay off for detectors that cannot produce them. New optional dependencies in `requirements-torch.txt`; the base install is unchanged.
 - **Phase 7:** Added the results dashboard: classification badge (icon plus text), confidence meter on a 50–100% scale, real-vs-AI bars with numeric labels, a score-zone strip showing where the score falls relative to the uncertain band, risk badge, metadata panel, signals panel separating scored from context-only items, and for videos a Recharts timeline with the uncertain band and threshold, a table alternative, highest-scoring frame cards, and sampling/aggregation details. The original media is kept in browser memory for click-to-seek. Added the `recharts` dependency (run `npm install`). Backend unchanged.
 - **Phase 6:** Added real uploads with progress and cancel, stale-response protection, `Retry-After` handling, retry only for retryable errors, result loading via `GET /api/results/{id}` after refresh, loading skeletons. Fixed the About link to use the router.
