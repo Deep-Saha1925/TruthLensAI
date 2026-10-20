@@ -192,3 +192,13 @@ def test_missing_and_untracked_files_are_detected(split_data, tmp_path):
     problems = check_manifest_integrity(copy)
     assert any("missing" in problem for problem in problems)
     assert any("on disk" in problem for problem in problems)
+
+def test_paired_groups_balance_both_classes():
+    counts = {f"p{i}": {"real": 2, "fake": 2} for i in range(40)}
+    ratios = {"train": 0.7, "validation": 0.15, "test": 0.15}
+    assignment = assign_groups(counts, ratios, seed=1)
+    for label in ("real", "fake"):
+        per_split = {s: sum(2 for g, split_ in assignment.items() if split_ == s) for s in ratios}
+        assert abs(per_split["train"] - 56) <= 2
+        assert abs(per_split["validation"] - 12) <= 2
+        assert abs(per_split["test"] - 12) <= 2
