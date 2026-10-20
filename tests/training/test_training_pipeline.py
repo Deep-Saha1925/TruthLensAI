@@ -14,7 +14,8 @@ pytest.importorskip("torchvision")
 from app.ml.model_meta import ModelMeta  # noqa: E402
 from app.ml.preprocessing import load_image, resize_and_normalize  # noqa: E402
 from training.augmentations import Augmenter  # noqa: E402
-from training.config import IMAGENET_PLACEHOLDER if False else TrainConfig  # noqa: E402,F401
+# from training.config import IMAGENET_PLACEHOLDER if False else TrainConfig  # noqa: E402,F401
+from training.config import TrainConfig  # noqa: E402
 from training.dataset import (  # noqa: E402
     ImageDataset,
     class_counts,
