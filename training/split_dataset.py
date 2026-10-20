@@ -173,7 +173,12 @@ def find_near_duplicate_pairs(hashes: np.ndarray, max_distance: int, chunk: int 
 def assign_groups(
     group_counts: dict[str, dict[str, int]], ratios: dict[str, float], seed: int
 ) -> dict[str, str]:
-    """Greedy, seeded and deterministic: biggest groups first, each to the split it fills least."""
+    """Greedy, seeded and deterministic: biggest groups first, each to the split it fills least.
+
+    Only the classes a group actually contains count toward its cost, so a one-class group
+    (the usual case: a real video, a fake video) balances its own class without being
+    distorted by how full the splits are with the other class.
+    """
     rng = random.Random(seed)
     groups = list(group_counts)
     rng.shuffle(groups)  # breaks ties between equally sized groups
@@ -184,20 +189,19 @@ def assign_groups(
     result: dict[str, str] = {}
     for group in groups:
         counts = group_counts[group]
+        present = [label for label in CLASS_NAMES if counts.get(label, 0) > 0]
         best_split, best_cost = None, math.inf
         for split, ratio in ratios.items():
             cost = sum(
-                (assigned[split][label] + counts.get(label, 0)) / (ratio * totals[label])
-                for label in CLASS_NAMES
-                if totals[label] > 0
+                (assigned[split][label] + counts[label]) / (ratio * totals[label])
+                for label in present
             )
             if cost < best_cost:
                 best_split, best_cost = split, cost
         result[group] = best_split  # type: ignore[assignment]
-        for label in CLASS_NAMES:
-            assigned[best_split][label] += counts.get(label, 0)  # type: ignore[index]
+        for label in present:
+            assigned[best_split][label] += counts[label]  # type: ignore[index]
     return result
-
 
 def audit_shortcuts(items: list[Item]) -> list[str]:
     """Warn when the classes differ in ways a model could learn instead of the content."""
