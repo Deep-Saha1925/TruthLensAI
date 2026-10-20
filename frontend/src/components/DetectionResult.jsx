@@ -9,6 +9,7 @@ import DisclaimerNotice from './DisclaimerNotice.jsx';
 import ExplainabilityPanel from './ExplainabilityPanel.jsx';
 import MediaPreview from './MediaPreview.jsx';
 import MetadataPanel from './MetadataPanel.jsx';
+import ModelPerformancePanel from './ModelPerformancePanel.jsx';
 import ProbabilityChart from './ProbabilityChart.jsx';
 import RiskBadge from './RiskBadge.jsx';
 import SuspiciousFrames from './SuspiciousFrames.jsx';
@@ -43,8 +44,9 @@ function Stat({ label, children }) {
 /**
  * The results dashboard for one image or video result.
  * `media` is { file, kind } when the original is still in browser memory, otherwise null.
+ * `detector` is the server's current detector info (for its measured performance), or null.
  */
-export default function DetectionResult({ result, media }) {
+export default function DetectionResult({ result, media, detector = null }) {
   const isVideo = result.media_type === 'video';
   const videoRef = useRef(null);
   const headingRef = useRef(null);
@@ -198,6 +200,8 @@ export default function DetectionResult({ result, media }) {
         heatmapNotice={result.heatmap_notice}
         originalFile={media && media.kind === 'image' ? media.file : null}
       />
+
+      <ModelPerformancePanel detector={detector} result={result} />
 
       <MetadataPanel result={result} />
 
