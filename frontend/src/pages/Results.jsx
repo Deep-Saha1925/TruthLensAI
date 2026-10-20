@@ -5,6 +5,7 @@ import DetectionResult from '../components/DetectionResult.jsx';
 import ErrorMessage from '../components/ErrorMessage.jsx';
 import SkeletonCard from '../components/SkeletonCard.jsx';
 import { useResult } from '../hooks/useResult.js';
+import { useServerInfo } from '../hooks/useServerInfo.js';
 import { recallMedia } from '../utils/mediaStore.js';
 
 const LinkButton = ({ to, children }) => (
@@ -20,6 +21,7 @@ export default function Results() {
   const { resultId } = useParams();
   const location = useLocation();
   const { status, result, error, retry } = useResult(resultId, location.state?.result ?? null);
+  const serverInfo = useServerInfo(); // for the model's measured performance
   // The original file exists only in the browser session that uploaded it.
   const media = useMemo(() => recallMedia(resultId), [resultId]);
 
@@ -58,5 +60,5 @@ export default function Results() {
     );
   }
 
-  return <DetectionResult result={result} media={media} />;
+  return <DetectionResult result={result} media={media} detector={serverInfo.detector} />;
 }
