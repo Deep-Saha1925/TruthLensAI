@@ -61,7 +61,7 @@ def test_roc_curve_area_matches_auc():
 def test_calibration_error_and_brier():
     y = [1] + [0] * 9
     assert expected_calibration_error(y, [0.1] * 10) == pytest.approx(0.0)
-    assert expected_calibration_error([0, 0, 1, 1], [0.9, 0.9, 0.1, 0.1]) == pytest.approx(0.8)
+    assert expected_calibration_error([0, 0, 1, 1], [0.9, 0.9, 0.1, 0.1]) == pytest.approx(0.9)
     assert brier_score([1, 0], [1.0, 0.0]) == 0.0
     assert brier_score([1, 0], [0.0, 1.0]) == 1.0
 
