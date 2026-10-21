@@ -17,6 +17,7 @@ from app.services.detection_service import DetectionService
 from app.services.rate_limiter import SlidingWindowRateLimiter
 from app.services.result_store import InMemoryResultStore
 from app.services.upload_service import UploadService
+from app.services.video_service import VideoDetectionService
 from app.utils.errors import register_exception_handlers
 from app.utils.logging import configure_logging
 
@@ -46,6 +47,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     detector = _load_detector(settings)
     detection_service = (
         DetectionService(detector, settings, result_store) if detector is not None else None
+    )
+    video_service = (
+        VideoDetectionService(detector, settings, result_store) if detector is not None else None
     )
 
     rate_limiter = (
@@ -77,6 +81,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.result_store = result_store
     app.state.detector = detector
     app.state.detection_service = detection_service
+    app.state.video_service = video_service
     app.state.started_at = time.monotonic()
 
     register_exception_handlers(app)
