@@ -13,6 +13,8 @@ from app.utils.errors import ModelError
 
 DetectorFactory = Callable[[Settings], MediaDetector]
 
+_NO_TORCH = "PyTorch support is not installed. Install backend/requirements-torch.txt."
+
 
 def _build_demo(settings: Settings) -> MediaDetector:
     return DemoHeuristicDetector()
@@ -25,13 +27,23 @@ def _build_torch(settings: Settings) -> MediaDetector:
 
         return load_torch_detector(settings)
     except ImportError as exc:
-        raise ModelError(
-            "PyTorch support is not installed. Install backend/requirements-torch.txt."
-        ) from exc
+        raise ModelError(_NO_TORCH) from exc
 
 
-# "ensemble" is registered in Phase 10.
-_FACTORIES: dict[str, DetectorFactory] = {"demo": _build_demo, "torch": _build_torch}
+def _build_ensemble(settings: Settings) -> MediaDetector:
+    try:
+        from app.ml.ensemble import build_ensemble
+
+        return build_ensemble(settings)
+    except ImportError as exc:
+        raise ModelError(_NO_TORCH) from exc
+
+
+_FACTORIES: dict[str, DetectorFactory] = {
+    "demo": _build_demo,
+    "torch": _build_torch,
+    "ensemble": _build_ensemble,
+}
 
 
 def build_detector(settings: Settings) -> MediaDetector:
@@ -40,4 +52,9 @@ def build_detector(settings: Settings) -> MediaDetector:
         raise ModelError(
             f"Detector backend '{settings.detector_backend}' is not available in this build."
         )
-    return factory(settings)
+    detector = factory(settings)
+    if settings.forensics_enabled:
+        from app.ml.forensics_detector import ForensicsDetector
+
+        detector = ForensicsDetector(detector)
+    return detector
