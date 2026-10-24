@@ -17,7 +17,7 @@ class Settings(BaseSettings):
         env_file=REPO_ROOT / ".env",
         env_file_encoding="utf-8",
         env_ignore_empty=True,
-        extra="ignore",  # the .env is shared with the frontend (VITE_*)
+        extra="ignore",  # the .env is shared with the frontend (VITE_*) and Docker Compose
         protected_namespaces=("settings_",),
     )
 
@@ -59,6 +59,11 @@ class Settings(BaseSettings):
     heatmap_enabled: bool = True
     heatmap_max_side: int = Field(256, ge=64, le=1024)
 
+    # Optional extras
+    forensics_enabled: bool = False
+    ensemble_members: Annotated[list[str], NoDecode] = Field(default_factory=list)
+    ensemble_weights: Annotated[list[float], NoDecode] = Field(default_factory=list)
+
     # Video analysis
     video_timeout_sec: float = Field(120, gt=0)
     max_concurrent_video_analyses: int = Field(1, ge=1, le=8)
@@ -68,6 +73,23 @@ class Settings(BaseSettings):
     def split_origins(cls, value: object) -> object:
         if isinstance(value, str):
             return [o.strip().rstrip("/") for o in value.split(",") if o.strip()]
+        return value
+
+    @field_validator("ensemble_members", mode="before")
+    @classmethod
+    def split_members(cls, value: object) -> object:
+        if isinstance(value, str):
+            return [item.strip() for item in value.split(",") if item.strip()]
+        return value
+
+    @field_validator("ensemble_weights", mode="before")
+    @classmethod
+    def split_weights(cls, value: object) -> object:
+        if isinstance(value, str):
+            try:
+                return [float(item) for item in value.split(",") if item.strip()]
+            except ValueError as exc:
+                raise ValueError("ENSEMBLE_WEIGHTS must be comma-separated numbers") from exc
         return value
 
     @model_validator(mode="after")
