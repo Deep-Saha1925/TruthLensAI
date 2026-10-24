@@ -4,7 +4,7 @@ TruthLens AI is a full-stack web application that estimates how likely an upload
 
 > **AI detection is probabilistic. Results should not be treated as definitive proof of authenticity or manipulation.**
 
-> **Project status: Phase 9 of 10 complete.** See [Roadmap and phase log](#roadmap-and-phase-log). Sections marked **(planned)** describe features that do not exist yet.
+> **Project status: all 10 phases complete.** See [Roadmap and phase log](#roadmap-and-phase-log). Known limits and untested areas are listed honestly in [Limitations](#limitations).
 
 ---
 
@@ -19,10 +19,12 @@ TruthLens AI is a full-stack web application that estimates how likely an upload
 7. [Installation and running](#installation-and-running)
 8. [Configuration](#configuration)
    - [Using a real model (torch backend)](#using-a-real-model-torch-backend)
+   - [Forensic signals and ensembles](#forensic-signals-and-ensembles)
 9. [API documentation](#api-documentation)
 10. [Security design](#security-design)
 11. [Testing](#testing)
-12. [Docker (planned)](#docker-planned)
+    - [Live demonstration guide](#live-demonstration-guide)
+12. [Docker](#docker)
 13. [Dataset preparation and training](#dataset-preparation-and-training)
 14. [Limitations](#limitations)
 15. [Ethical considerations](#ethical-considerations)
@@ -48,7 +50,11 @@ TruthLens AI is a full-stack web application that estimates how likely an upload
 | Grad-CAM heatmap overlay with opacity control, only for models whose layer supports it (capability-gated, never faked) | Working |
 | Training pipeline: group-aware dataset splitting, augmentation, class balancing, checkpoints, evaluation (accuracy, precision, recall, F1, ROC-AUC, confusion matrix, calibration error, robustness to compression/resizing/blur), export to a loadable `TRAINED` model | Working |
 | "Measured performance of this model" panel on the results page (for models that carry an `evaluation`) | Working |
-| Docker, full test coverage, ensemble and forensics extras | **Planned (Phase 10)** |
+| Docker Compose deployment: CPU by default, nginx serves the UI and proxies `/api`, optional PyTorch and NVIDIA GPU builds | Working (see the Docker section for what is untested) |
+| Optional forensic context signals for images (image size, colour statistics, per-channel noise, JPEG compression history, EXIF software tag) and videos (sampled-frame consistency, face presence and consistency); never used in a score | Working (`FORENSICS_ENABLED`) |
+| Optional ensemble of several detectors with user-chosen weights; the tier is capped so it never claims more than its weakest member | Working (`DETECTOR_BACKEND=ensemble`) |
+| Videos whose container reports no frame count (some `.webm`/`.mkv`) are accepted by counting frames | Working |
+| Frontend component tests (React Testing Library) | Working |
 
 **Important:** the only detector currently included is a **demo heuristic** (see below). It is not a trained AI detector and has no demonstrated accuracy. It exists so the whole application can run end to end until a real model is plugged in.
 
@@ -173,10 +179,10 @@ Key design choices:
 |---|---|
 | Frontend | JavaScript, React 18, Vite 7, Tailwind CSS v4, React Router 6, Axios, lucide-react, Vitest |
 | Backend | Python 3.10+, FastAPI, Uvicorn, Pydantic v2 + pydantic-settings, Pillow, OpenCV (headless), NumPy |
-| Testing | pytest, httpx (backend); Vitest (frontend) |
+| Testing | pytest, httpx (backend); Vitest, React Testing Library, jsdom (frontend) |
 | Charts | Recharts |
 | ML (optional) | PyTorch, torchvision, transformers, safetensors (`backend/requirements-torch.txt`); matplotlib for optional plots (`backend/requirements-train.txt`) |
-| Planned | Docker + nginx (Phase 10) |
+| Deployment | Docker, Docker Compose, nginx |
 
 ---
 
@@ -197,6 +203,7 @@ truthlens-ai/
 │   ├── scripts/fetch_hf_model.py  download a Hugging Face model + write model_meta.json
 │   ├── scripts/make_dummy_model.py  RANDOM weights, only for testing the heatmap UI
 │   ├── requirements-train.txt     optional: adds matplotlib for training plots
+│   ├── Dockerfile
 │   └── app/
 │       ├── __main__.py            run with: python -m app
 │       ├── main.py                app factory, middleware stack, lifespan
@@ -216,10 +223,12 @@ truthlens-ai/
 │       │   ├── model_meta.py      model_meta.json schema and validation
 │       │   ├── torch_detector.py  PyTorch detector (optional install)
 │       │   ├── explainability.py  Grad-CAM and heatmap rendering
-│       │   └── forensics/image_features.py
+│       │   ├── ensemble.py        weighted ensemble of detectors (optional)
+│       │   ├── forensics_detector.py  wrapper adding forensic context signals (optional)
+│       │   └── forensics/             image_features, jpeg, image_report, video_report
 │       └── utils/                 errors, logging, media_types, scoring
 ├── frontend/
-│   ├── index.html, package.json, vite.config.js
+│   ├── index.html, package.json, vite.config.js, Dockerfile, nginx.conf
 │   └── src/
 │       ├── components/            Navbar, ThemeToggle, UploadZone, MediaPreview,
 │       │                          DetectorTierBanner, DisclaimerNotice, ErrorMessage,
@@ -233,10 +242,11 @@ truthlens-ai/
 │       ├── utils/                 formatting, validation, resultPresentation, mediaStore, heatmap
 │       └── __tests__/
 ├── training/                      split, train, evaluate, export (see the training section)
+├── docker-compose.yml             CPU by default
+├── docker-compose.gpu.yml         optional NVIDIA GPU override
 └── tests/backend/                 pytest suite
 ```
 
-Planned additions: `docker-compose*.yml` and Dockerfiles (Phase 10), `backend/app/ml/ensemble.py` (Phase 10), `docs/architecture.md`.
 
 ---
 
@@ -307,11 +317,14 @@ All settings are environment variables (see `.env.example`). Invalid values stop
 | `MAX_VIDEO_DURATION_SEC` | `60` | Enforced on the real decoded frame count, not just metadata. |
 | `MAX_VIDEO_FRAMES_ANALYZED` | `24` | Frame budget per video. |
 | `TEMP_DIR` | `<system temp>/truthlens-uploads` | Randomly named temp files, always deleted. |
-| `DETECTOR_BACKEND` | `demo` | `demo` or `torch`. `ensemble` is reserved for Phase 10. If the selected backend cannot load, the server starts in degraded mode (`/api/health` returns 503). |
+| `DETECTOR_BACKEND` | `demo` | `demo` or `torch`. `ensemble` combines several members (see below). If the selected backend cannot load, the server starts in degraded mode (`/api/health` returns 503). |
 | `MODEL_PATH`, `MODEL_META_PATH` | empty | Torch backend: the model directory (relative paths resolve from the repository root) and the metadata file (default `<MODEL_PATH>/model_meta.json`). |
 | `DEVICE` | `auto` | `auto`, `cpu`, `cuda`. `cuda` fails to load if CUDA is unavailable; `auto` falls back to CPU. |
 | `HEATMAP_ENABLED` | `true` | Turn heatmap generation off server-side (only matters for detectors that support it). |
 | `HEATMAP_MAX_SIDE` | `256` | Longest side, in pixels, of the heatmap PNG returned to the browser. |
+| `ENSEMBLE_MEMBERS` | empty | For `DETECTOR_BACKEND=ensemble`: comma-separated members, each `demo` or `torch:<model directory>`; at least two. |
+| `ENSEMBLE_WEIGHTS` | equal | Comma-separated positive numbers, one per member. Chosen by you, not fitted to data. |
+| `FORENSICS_ENABLED` | `false` | Add context-only forensic signals to any detector's results. Never changes a score. |
 | `UNCERTAIN_BAND_LOW` / `_HIGH` | `0.35` / `0.65` | Scores inside the band are `UNCERTAIN`. |
 | `REQUEST_TIMEOUT_SEC` | `30` | Max wait for one image analysis. |
 | `MAX_CONCURRENT_ANALYSES` | `2` | Image inference worker threads. |
@@ -397,6 +410,39 @@ A heatmap appears only when the loaded model has a `gradcam_layer` whose output 
 - Hugging Face models must ship `.safetensors`; pickle-only models are refused.
 - All torch inference in one process is serialized behind a lock (hooks used for heatmaps share model state).
 - Video analysis runs in a fresh process per video, which **reloads the model each time**. Expect video analysis with a torch model to take noticeably longer (a persistent worker is the future upgrade).
+
+
+## Forensic signals and ensembles
+
+Both features are optional and off by default. Neither makes the system a proven detector.
+
+### Forensic context signals (`FORENSICS_ENABLED=true`)
+
+Adds observations to the "context only" list of a result. They are **never** used in a score; they describe how a file was produced or processed, not whether its content is real. Metadata and compression history are weak evidence: platforms strip them from real photos and they can be added to or forged on synthetic ones.
+
+| Media | Signals |
+|---|---|
+| Image | Image size (and whether both sides are multiples of 64), colour statistics (saturation, clipped pixels), per-channel noise strength, JPEG compression history (quality estimated from the quantization tables, if they match standard libjpeg scaling), EXIF `Software` tag (only that one tag is read; GPS and everything else are never read out) |
+| Video | Consistency between sampled frames (mean change, hard cuts), and face presence and consistency (an OpenCV Haar cascade, frontal faces only) |
+
+The video signals decode the video again, so analysis takes longer. Face consistency in particular is crude: natural movement, angled faces and editing all change it. It is **not** a deepfake test.
+
+### Ensembles (`DETECTOR_BACKEND=ensemble`)
+
+```ini
+DETECTOR_BACKEND=ensemble
+ENSEMBLE_MEMBERS=torch:backend/weights/model-a,torch:backend/weights/model-b
+ENSEMBLE_WEIGHTS=1,2
+```
+
+The ensemble score is the weighted mean of the members' scores. Each member's score appears as a scored item, a member's own signals appear as context, and an agreement item shows how far apart the members are (a spread above 0.4 is flagged as unreliable).
+
+Honesty rules:
+
+- The tier is **capped**: `DEMO_HEURISTIC` if any member is a demo heuristic, otherwise `PRETRAINED_ML`, never `TRAINED`. An ensemble has not been evaluated as a combination, so it cannot carry measured metrics.
+- Mixing a demo heuristic into an ensemble makes the whole result "prototype" and caps its risk level.
+- `calibrated` is always false, there is no heatmap (a member's heatmap would mislead about the combined score), and the weights are your choice, not fitted to data.
+- Video analysis with a torch ensemble reloads every member for each video.
 
 
 ## API documentation
@@ -519,7 +565,7 @@ Run from the **repository root**, not from `backend/`. On Windows use `python -m
 python -m pytest -v
 ```
 
-Covers: health and models endpoints, CORS, request IDs, image upload (valid, empty, wrong extension, wrong MIME, renamed text file, truncated, oversized, path traversal, too small), rate limiting, response schema, detector behaviour and feature functions, preprocessing, scoring and risk rules, result store TTL/eviction, video sampling and aggregation, the killable process runner (timeout, crash, error propagation), and the video endpoint (valid, corrupted, too long, timeout, detector unavailable). Video tests take longer because they start real worker processes (roughly 20–60 s total). Tests that need PyTorch (`test_torch_detector.py`) are skipped automatically when it is not installed; they use a tiny randomly initialised network to test the plumbing, not detection quality. The training tests (`tests/training/`) build a toy dataset on the fly: the splitting, metrics and augmentation tests run without PyTorch, and the train/evaluate/export tests skip when it is missing.
+Covers: health and models endpoints, CORS, request IDs, image upload (valid, empty, wrong extension, wrong MIME, renamed text file, truncated, oversized, path traversal, too small), rate limiting, response schema, detector behaviour and feature functions, preprocessing, scoring and risk rules, result store TTL/eviction, video sampling and aggregation, the killable process runner (timeout, crash, error propagation), and the video endpoint (valid, corrupted, too long, timeout, detector unavailable). Video tests take longer because they start real worker processes (roughly 20–60 s total). Tests that need PyTorch (`test_torch_detector.py`) are skipped automatically when it is not installed; they use a tiny randomly initialised network to test the plumbing, not detection quality. The training tests (`tests/training/`) build a toy dataset on the fly: the splitting, metrics and augmentation tests run without PyTorch, and the train/evaluate/export tests skip when it is missing. Phase 10 adds tests for the forensic signals, the ensemble and the `.webm`/`.mkv` frame-counting fallback.
 
 ### Frontend (Vitest)
 
@@ -528,13 +574,53 @@ cd frontend
 npm test
 ```
 
-Covers file validation, formatting, API error mapping and retry rules, the detection state-machine reducer, and the dashboard's presentation logic (percent splitting, score zones, timeline data, signal grouping, the in-memory media store) and the parsing of a model's measured performance. Component tests with React Testing Library are planned for Phase 10.
+Covers file validation, formatting, API error mapping and retry rules, the detection state-machine reducer, and the dashboard's presentation logic (percent splitting, score zones, timeline data, signal grouping, the in-memory media store) and the parsing of a model's measured performance. Phase 10 adds component tests with React Testing Library (jsdom): the uploader, error and banner components, the probability and confidence meters, the explainability and performance panels, the home-page upload flow with a mocked API, and the results dashboard for an image and a video result (with the chart library stubbed).
 
 ---
 
-## Docker (planned)
+## Docker
 
-Planned for Phase 10: `docker compose up --build` using a CPU-only backend image by default, nginx serving the built frontend and proxying `/api`, and an optional `docker-compose.gpu.yml` override for CUDA. `DEVICE=auto` will fall back to CPU. **Not implemented yet.**
+`docker compose up --build` runs two containers: a Python backend (not published to the host) and nginx, which serves the built UI and proxies `/api` to the backend. Open **http://localhost:8080**.
+
+```bash
+cp .env.example .env              # Windows: copy .env.example .env
+docker compose up --build
+```
+
+The default build is **CPU-only and demo-detector only** (no PyTorch), so it is small and runs anywhere.
+
+### With a real model (CPU)
+
+```bash
+# 1. put a model folder (with model_meta.json) in backend/weights/my-model  (see "Using a real model")
+# 2. in .env:
+#    INSTALL_TORCH=true
+#    DETECTOR_BACKEND=torch
+#    DOCKER_MODEL_PATH=/models/my-model
+docker compose up --build
+```
+
+`backend/weights` is mounted read-only at `/models` inside the container. Use `DOCKER_MODEL_PATH` (a container path), not the host `MODEL_PATH`. For an ensemble use `DOCKER_ENSEMBLE_MEMBERS` with container paths.
+
+### GPU (NVIDIA)
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.gpu.yml up --build
+```
+
+This builds with CUDA PyTorch wheels (the wheels carry their own CUDA runtime, so the base image is unchanged) and reserves one GPU. It needs the NVIDIA Container Toolkit on the host. Check pytorch.org for the current CUDA wheel index and override `TORCH_INDEX_URL` in `.env` if the default is out of date. `DEVICE=auto` falls back to CPU when no GPU is visible.
+
+### What the setup does
+
+- The backend runs as a non-root user with a read-only root filesystem, a `/tmp` tmpfs for uploads, all capabilities dropped and `no-new-privileges`. Remove `read_only` in `docker-compose.yml` if a model needs a writable cache.
+- One worker process only: the result store and rate limiter are per process.
+- nginx keeps request buffering **on**, because the backend requires a `Content-Length` on uploads; it adds the client address to `X-Forwarded-For`, and the backend trusts only the last entry (`TRUST_PROXY_HEADERS=true`, safe because only nginx can reach it).
+- `client_max_body_size` is 110 MB: raise it in `frontend/nginx.conf` if you raise `MAX_VIDEO_SIZE_MB`. Proxy timeouts are 330 s, above the 120 s default video timeout.
+- Compose settings come from `.env` with the same defaults as the app (`WEB_PORT`, `INSTALL_TORCH`, `TORCH_INDEX_URL`, `DOCKER_MODEL_PATH`, `DOCKER_ENSEMBLE_MEMBERS`, `FORENSICS_ENABLED`, size and rate limits).
+
+### Not done
+
+No TLS (put a TLS-terminating proxy in front for any public deployment), no Content-Security-Policy (the theme script is inline), no persistent storage (results live in memory), and the Docker setup has not been tested on every platform: see the troubleshooting table.
 
 ---
 
@@ -648,6 +734,20 @@ The results page shows these metrics in a **Measured performance** panel wheneve
 
 They describe this model on this test split. They do not transfer automatically to other generators, cameras, platforms, or recompressed copies, and a test set drawn from the same source as the training data will flatter the model. Treat a large gap between the original and the robustness rows as the real signal. See `training/DATASETS.md` for generalization tests (train on some generators, test on others).
 
+## Live demonstration guide
+
+A sequence that shows the system's honesty features as well as its capabilities (about 10 minutes):
+
+1. Open the site and point out the **Prototype mode** banner and the disclaimer: the system says what it is before you upload anything.
+2. Upload a **camera photo** and read the result: score, the **uncertain zone**, the "raw score, not a calibrated probability" note, and the signals split into "fed the score" and "context only".
+3. Upload an **AI-generated image**. With the demo detector the result is often "Uncertain": say so, and explain why (two placeholder statistics, no training data).
+4. Re-save the same photo as **low-quality JPEG** and upload it again: the score moves. This is the compression sensitivity the Limitations section describes.
+5. Upload a **short video**: the sampling coverage, the timeline with the uncertain band, the highest-scoring frames (click one to jump to that moment), and the warnings box.
+6. Switch to a **real model** (torch backend or your trained export): the banner changes tier, the **Measured performance** panel appears with the robustness table, and a heatmap appears if the model supports one. Show a transformer model's "No heatmap" notice: nothing is faked.
+7. Show the training pipeline's **leakage protection**: corrupt a manifest row and watch `training.train` refuse to run.
+8. Close with **About**: false positives and negatives, dataset bias, new generators, recompression, adversarial manipulation.
+
+
 ---
 
 ## Limitations
@@ -668,7 +768,7 @@ Specific to the current build:
 - The demo detector measures two statistics with placeholder thresholds. Expect many wrong answers in both directions.
 - **Video frames are scored independently.** Temporal artifacts, audio and lip-sync are not examined, and a brief manipulated segment between sampled frames can be missed.
 - Scene-cut detection uses a fixed threshold and finds hard cuts, not fades.
-- Some `.webm`/`.mkv` files report no frame count and are rejected as corrupted; re-encode to MP4. A fallback is planned for Phase 10.
+- For containers that report no frame count (some `.webm`/`.mkv`), the server counts frames by decoding, so validation is slower, and the metadata's "reported frames" shows the decoded count. A file with no usable frame rate is still rejected; re-encode it to MP4.
 - **Cancel** in the UI stops waiting but cannot stop work already running on the server.
 - Analysis progress is indeterminate (the backend has no job/polling API); only the upload shows real progress.
 - Results are in server memory: they expire after `RESULT_TTL_SECONDS` and are lost on restart.
@@ -684,6 +784,10 @@ Specific to the current build:
 - The training pipeline is binary (`real` vs `fake`): it cannot tell AI-generated from manipulated media. Group-aware splitting prevents the leaks it can see (shared group ids, identical files, optionally near-duplicates); it cannot know about duplicates it was not told about.
 - No calibration step is applied, so exported models always report `calibrated: false`.
 - Training runs on CPU or a single GPU with no mixed precision, distributed training or hyperparameter search. Class balancing handles label imbalance, not imbalance between generators.
+- Forensic signals are context only and weak evidence by nature; the video face-consistency signal uses a crude face detector and is not a deepfake test.
+- An ensemble has no measured performance of its own, so its tier is capped below `TRAINED`; its weights are your choice.
+- Docker: the images have not been tested on every platform or GPU, there is no TLS or Content-Security-Policy, and there is a single backend worker (state is in process memory).
+- The frontend tests cover logic and key components; there are no browser end-to-end tests, and layout and colour are checked by eye, not automatically.
 
 ---
 
@@ -729,6 +833,12 @@ Specific to the current build:
 | `export_checkpoint` refuses: test split too small | Fewer than 200 test images. Use more data, or `--force-small-test-set` for a demo (a warning is attached to the metrics). |
 | DataLoader errors on Windows with `--num-workers` above 0 | Use `--num-workers 0`. |
 | Validation ROC-AUC shows as missing | The validation split has only one class. Re-split with more groups. |
+| `docker compose up` fails building the backend | Check the pip error. For `INSTALL_TORCH=true` you need network access to the PyTorch index; for GPU builds, verify `TORCH_INDEX_URL` on pytorch.org. |
+| UI loads at :8080 but shows "Server unreachable" | The backend container is not up or crashed. `docker compose logs backend`. |
+| Backend container is "unhealthy" | `/api/health` returns 503: the detector failed to load. The log names the cause (usually `DOCKER_MODEL_PATH` or missing weights). |
+| Upload fails with 413 from nginx | The file exceeds `client_max_body_size` (110 MB) in `frontend/nginx.conf`. |
+| `could not select device driver "nvidia"` | The NVIDIA Container Toolkit is not installed or Docker was not restarted after installing it. |
+| Frontend tests fail with `document is not defined` | Install the new dev dependencies (`npm install`); the tests need `jsdom` and the Testing Library packages. |
 
 ---
 
@@ -745,10 +855,11 @@ Specific to the current build:
 | 7 | Results dashboard: badge, meters, charts, video timeline, metadata, signals | Done |
 | 8 | Torch backend, model metadata, Grad-CAM heatmaps (capability-gated), heatmap overlay | Done |
 | 9 | Training pipeline: group-aware split, train, evaluate, export, measured-performance panel | Done |
-| 10 | Tests, Docker, ensemble/forensics extras, `.webm`/`.mkv` frame-count fallback, final polish | Next |
+| 10 | Docker, component tests, `.webm`/`.mkv` frame-count fallback, forensic signals, ensemble, final README | Done |
 
 ### Phase log
 
+- **Phase 10:** Added Docker Compose (non-root, read-only backend; nginx serving the UI and proxying `/api`; optional PyTorch build and NVIDIA GPU override), the `.webm`/`.mkv` frame-counting fallback, React Testing Library component tests (jsdom), optional forensic context signals for images and videos (never scored), an optional capped-tier ensemble of detectors, a live demonstration guide, and this final README. Also fixed in testing: the group-assignment cost now counts only the classes a group contains.
 - **Phase 9:** Added the `training/` package: group-aware splitting with a manifest and report (identical-file and optional near-duplicate merging, shortcut audit), video frame extraction using the server's sampler, a class-agnostic augmentation pipeline, training with class balancing, checkpoints, resume and early stopping, evaluation with accuracy, precision, recall, F1, ROC-AUC, confusion matrix, calibration error and a robustness table, and an export step (minimum test-set size, loadability check) that writes a `TRAINED` model with a heatmap layer. The results page gained a Measured performance panel. A toy dataset generator lets you run the whole pipeline without data. Backend runtime unchanged.
 - **Phase 8:** Added the optional `torch` detector backend (Hugging Face and torchvision models), a validated `model_meta.json` (tier, labels, licence, evaluation; `TRAINED` requires evaluation), Grad-CAM with a per-model self-check, the heatmap fields in image responses, the overlay with opacity control and a text legend in the dashboard, and a Hugging Face download script that refuses pickle-only models. Heatmaps stay off for detectors that cannot produce them. New optional dependencies in `requirements-torch.txt`; the base install is unchanged.
 - **Phase 7:** Added the results dashboard: classification badge (icon plus text), confidence meter on a 50–100% scale, real-vs-AI bars with numeric labels, a score-zone strip showing where the score falls relative to the uncertain band, risk badge, metadata panel, signals panel separating scored from context-only items, and for videos a Recharts timeline with the uncertain band and threshold, a table alternative, highest-scoring frame cards, and sampling/aggregation details. The original media is kept in browser memory for click-to-seek. Added the `recharts` dependency (run `npm install`). Backend unchanged.
