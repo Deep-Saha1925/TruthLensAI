@@ -1,0 +1,53 @@
+name: truthlens
+
+services:
+  backend:
+    build:
+      context: ./backend
+      args:
+        INSTALL_TORCH: ${INSTALL_TORCH:-false}
+        TORCH_INDEX_URL: ${TORCH_INDEX_URL:-https://download.pytorch.org/whl/cpu}
+    init: true  # reaps the video worker processes
+    expose:
+      - "8000"  # reachable by nginx only, not published to the host
+    environment:
+      ENVIRONMENT: production
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      TRUST_PROXY_HEADERS: "true"  # only nginx can reach the backend
+      CORS_ORIGINS: http://localhost:${WEB_PORT:-8080},http://127.0.0.1:${WEB_PORT:-8080}
+      DETECTOR_BACKEND: ${DETECTOR_BACKEND:-demo}
+      MODEL_PATH: ${DOCKER_MODEL_PATH:-}
+      DEVICE: ${DEVICE:-auto}
+      FORENSICS_ENABLED: ${FORENSICS_ENABLED:-false}
+      ENSEMBLE_MEMBERS: ${DOCKER_ENSEMBLE_MEMBERS:-}
+      ENSEMBLE_WEIGHTS: ${ENSEMBLE_WEIGHTS:-}
+      HEATMAP_ENABLED: ${HEATMAP_ENABLED:-true}
+      RATE_LIMIT_PER_MINUTE: ${RATE_LIMIT_PER_MINUTE:-30}
+      MAX_IMAGE_SIZE_MB: ${MAX_IMAGE_SIZE_MB:-10}
+      MAX_VIDEO_SIZE_MB: ${MAX_VIDEO_SIZE_MB:-100}
+      MAX_VIDEO_DURATION_SEC: ${MAX_VIDEO_DURATION_SEC:-60}
+      MAX_VIDEO_FRAMES_ANALYZED: ${MAX_VIDEO_FRAMES_ANALYZED:-24}
+      REQUEST_TIMEOUT_SEC: ${REQUEST_TIMEOUT_SEC:-30}
+      VIDEO_TIMEOUT_SEC: ${VIDEO_TIMEOUT_SEC:-120}
+      UNCERTAIN_BAND_LOW: ${UNCERTAIN_BAND_LOW:-0.35}
+      UNCERTAIN_BAND_HIGH: ${UNCERTAIN_BAND_HIGH:-0.65}
+    volumes:
+      - ./backend/weights:/models:ro
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+    ports:
+      - "${WEB_PORT:-8080}:80"
+    depends_on:
+      backend:
+        condition: service_started
+    restart: unless-stopped
