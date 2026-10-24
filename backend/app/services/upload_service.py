@@ -43,6 +43,7 @@ logger = logging.getLogger(__name__)
 CHUNK_SIZE = 1024 * 1024
 MIN_IMAGE_SIDE = 32
 STALE_AFTER_SECONDS = 3600
+FRAME_LIMIT_SLACK = 1.1  # tolerance for slightly wrong fps metadata
 _TEMP_NAME = re.compile(r"^[0-9a-f]{32}\.[a-z0-9]+$")
 
 
@@ -66,6 +67,7 @@ class VideoInfo:
     fps: float
     frame_count: int
     duration_sec: float
+    frame_count_source: str = "container"  # "decoded" when the container reported no count
 
 
 class UploadService:
@@ -173,8 +175,13 @@ class UploadService:
         return ImageInfo(width=width, height=height, format=image_format.lower())
 
     def validate_video(self, path: Path) -> VideoInfo:
-        """Open the video, read metadata and the first frame. Blocking."""
+        """Open the video, read metadata and the first frame. Blocking.
+
+        Some containers (certain .webm/.mkv files) report no frame count. Then the frames
+        are counted by decoding, stopping as soon as the duration limit is exceeded.
+        """
         capture = cv2.VideoCapture(str(path))
+        source = "container"
         try:
             if not capture.isOpened():
                 raise CorruptedMediaError("The video is corrupted or cannot be opened.")
@@ -185,6 +192,9 @@ class UploadService:
             ok, frame = capture.read()
             if not ok or frame is None:
                 raise CorruptedMediaError("The video has no readable frames.")
+            if frame_count <= 0 and math.isfinite(fps) and fps > 0:
+                frame_count = self._count_frames(capture, fps)
+                source = "decoded"
         except cv2.error as exc:
             raise CorruptedMediaError("The video is corrupted or cannot be opened.") from exc
         finally:
@@ -204,8 +214,22 @@ class UploadService:
                 "Video resolution is too high.", code="VIDEO_RESOLUTION_TOO_HIGH"
             )
         return VideoInfo(
-            width=width, height=height, fps=fps, frame_count=frame_count, duration_sec=duration
+            width=width, height=height, fps=fps, frame_count=frame_count,
+            duration_sec=duration, frame_count_source=source,
         )
+
+    def _count_frames(self, capture: "cv2.VideoCapture", fps: float) -> int:
+        """Count the remaining frames by decoding. The first frame was already read."""
+        limit = math.ceil(self._settings.max_video_duration_sec * fps * FRAME_LIMIT_SLACK) + 1
+        count = 1
+        while capture.grab():
+            count += 1
+            if count > limit:
+                raise MediaLimitError(
+                    f"Video is longer than the {self._settings.max_video_duration_sec:g} s limit.",
+                    code="VIDEO_TOO_LONG",
+                )
+        return count
 
     # ------------------------------------------------------------------ cleanup
 
