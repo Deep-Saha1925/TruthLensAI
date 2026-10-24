@@ -7,11 +7,13 @@ import cv2
 import numpy as np
 from PIL import Image, ImageOps
 
+from app.ml.forensics.jpeg import estimate_jpeg_quality
 from app.utils.errors import CorruptedMediaError
 
 IMAGENET_MEAN = np.array([0.485, 0.456, 0.406], dtype=np.float32)
 IMAGENET_STD = np.array([0.229, 0.224, 0.225], dtype=np.float32)
 JPEG_BLOCK = 8
+_EXIF_SOFTWARE_TAG = 0x0131
 
 
 @dataclass(frozen=True, eq=False)
@@ -23,6 +25,8 @@ class PreparedImage:
     mode: str        # original Pillow mode, e.g. "RGB", "RGBA", "P"
     has_alpha: bool
     has_exif: bool   # presence only: EXIF contents (e.g. GPS) are never read out or returned
+    jpeg_quality_estimate: int | None = None  # from the quantization tables, if standard
+    exif_software: str | None = None          # the one EXIF tag that is read (printable, <= 80 chars)
 
     @property
     def width(self) -> int:
@@ -33,13 +37,27 @@ class PreparedImage:
         return int(self.rgb.shape[0])
 
 
+def _clean_text(value: object) -> str | None:
+    if not isinstance(value, str):
+        return None
+    text = "".join(ch for ch in value if ch.isprintable()).strip()[:80]
+    return text or None
+
+
 def load_image(path: Path) -> PreparedImage:
     """Decode to RGB uint8, honoring EXIF orientation and flattening alpha onto white."""
     try:
         with Image.open(path) as source:
             image_format = (source.format or "unknown").lower()
             mode = source.mode
-            has_exif = len(source.getexif()) > 0
+            exif = source.getexif()
+            has_exif = len(exif) > 0
+            exif_software = _clean_text(exif.get(_EXIF_SOFTWARE_TAG))
+            jpeg_quality = (
+                estimate_jpeg_quality(getattr(source, "quantization", None))
+                if image_format == "jpeg"
+                else None
+            )
             has_alpha = mode in ("RGBA", "LA", "PA") or "transparency" in source.info
             oriented = ImageOps.exif_transpose(source)
             rgb_image = _flatten_to_rgb(oriented, has_alpha)
@@ -49,7 +67,13 @@ def load_image(path: Path) -> PreparedImage:
 
     rgb.flags.writeable = False  # detectors must never mutate shared input
     return PreparedImage(
-        rgb=rgb, format=image_format, mode=mode, has_alpha=has_alpha, has_exif=has_exif
+        rgb=rgb,
+        format=image_format,
+        mode=mode,
+        has_alpha=has_alpha,
+        has_exif=has_exif,
+        jpeg_quality_estimate=jpeg_quality,
+        exif_software=exif_software,
     )
 
 
