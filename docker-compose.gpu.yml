@@ -1,0 +1,19 @@
+# Usage: docker compose -f docker-compose.yml -f docker-compose.gpu.yml up --build
+# Needs the NVIDIA Container Toolkit on the host. CUDA wheels bring their own CUDA runtime,
+# so the base image is unchanged. Check pytorch.org for the current CUDA wheel index and set
+# TORCH_INDEX_URL in .env if the default below is out of date.
+services:
+  backend:
+    build:
+      args:
+        INSTALL_TORCH: "true"
+        TORCH_INDEX_URL: ${TORCH_INDEX_URL:-https://download.pytorch.org/whl/cu121}
+    environment:
+      DEVICE: auto  # falls back to CPU when no GPU is visible
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
