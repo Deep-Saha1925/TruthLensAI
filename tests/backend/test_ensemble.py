@@ -136,4 +136,4 @@ def test_api_runs_an_ensemble_and_labels_it_honestly(make_client, png_bytes):
     assert body["detector_tier"] == "DEMO_HEURISTIC"
     assert body["model"].startswith("ensemble[")
     assert body["heatmap_status"] == "unsupported"
-    assert {"member:demo", "member:demo#2"} <= {s["key"] for s in body["explanation"]}
+    assert {"member:demo-heuristic", "member:demo-heuristic#2"} <= {s["key"] for s in body["explanation"]}
