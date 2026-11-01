@@ -22,23 +22,30 @@ const renderResult = (result, props = {}) =>
     </MemoryRouter>,
   );
 
+// The collapsed "Raw response (JSON)" block repeats every value on the page, so text
+// queries must skip it.
+const byText = (matcher) => screen.getByText(matcher, { ignore: 'script, style, pre' });
+
 describe('DetectionResult (image)', () => {
   it('moves focus to the heading and shows the classification and tier notice', () => {
     renderResult(imageResult);
     expect(screen.getByRole('heading', { name: 'Analysis result' })).toHaveFocus();
-    expect(screen.getByText('Uncertain')).toBeInTheDocument();
-    expect(screen.getByText(/Prototype mode:/)).toBeInTheDocument();
-    expect(screen.getByText(/raw score, not a calibrated probability/i)).toBeInTheDocument();
+
+    const summary = screen.getByRole('region', { name: 'Summary' });
+    expect(within(summary).getByText('Uncertain')).toBeInTheDocument();
+    expect(within(summary).getByText(/raw score, not a calibrated probability/i)).toBeInTheDocument();
+
+    expect(byText(/this result comes from simple heuristics/i)).toBeInTheDocument();
   });
 
   it('explains that the original is not available instead of showing nothing', () => {
     renderResult(imageResult);
-    expect(screen.getByText(/The original is not shown/i)).toBeInTheDocument();
+    expect(byText(/The original is not shown/i)).toBeInTheDocument();
   });
 
   it('explains why there is no heatmap', () => {
     renderResult(imageResult);
-    expect(screen.getByText(/has no regions to highlight/i)).toBeInTheDocument();
+    expect(byText(/has no regions to highlight/i)).toBeInTheDocument();
   });
 
   it('keeps the disclaimer and a way to start over', () => {
@@ -55,17 +62,29 @@ describe('DetectionResult (image)', () => {
     renderResult(imageResult, { detector });
     expect(screen.getByRole('heading', { name: /measured performance/i })).toBeInTheDocument();
   });
+
+  it('hides the performance panel when the server runs a different model', () => {
+    const detector = {
+      name: 'another-model', version: '1', tier: 'TRAINED',
+      evaluation: { accuracy: 0.9 },
+    };
+    renderResult(imageResult, { detector });
+    expect(screen.queryByRole('heading', { name: /measured performance/i })).not.toBeInTheDocument();
+  });
 });
 
 describe('DetectionResult (video)', () => {
   it('shows the timeline, a table of frame scores and the warnings', () => {
     renderResult(videoResult);
     expect(screen.getByRole('heading', { name: 'Detection timeline' })).toBeInTheDocument();
-    expect(screen.getByText(/Read before relying on this video result/)).toBeInTheDocument();
-    expect(screen.getByText(/Frames are scored independently/)).toBeInTheDocument();
+    expect(byText(/Read before relying on this video result/)).toBeInTheDocument();
+    expect(byText(/Frames are scored independently/)).toBeInTheDocument();
 
-    const table = screen.getByRole('table', { name: /AI score for each analyzed frame/i });
-    expect(within(table).getAllByRole('row')).toHaveLength(1 + videoResult.frame_results.length);
+    // The table sits in a closed <details>, so include inaccessible elements in the query.
+    const table = screen.getByRole('table', { name: /AI score for each analyzed frame/i, hidden: true });
+    expect(within(table).getAllByRole('row', { hidden: true })).toHaveLength(
+      1 + videoResult.frame_results.length,
+    );
   });
 
   it('lists the highest-scoring frames but cannot seek without the original video', () => {
@@ -79,6 +98,6 @@ describe('DetectionResult (video)', () => {
   it('explains how the video score was built', () => {
     renderResult(videoResult);
     expect(screen.getByRole('heading', { name: 'How the video score was built' })).toBeInTheDocument();
-    expect(screen.getByText(/0.70 x trimmed mean/)).toBeInTheDocument();
+    expect(byText(/0\.70 x trimmed mean/)).toBeInTheDocument();
   });
 });
