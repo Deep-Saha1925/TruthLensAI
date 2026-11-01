@@ -103,7 +103,7 @@ def settings(**values):
 
 def test_build_from_comma_separated_settings():
     ensemble = build_ensemble(settings(ensemble_members="demo,demo", ensemble_weights="1,2"))
-    assert ensemble.info.name == "ensemble[demo+demo#2]"
+    assert ensemble.info.name == "ensemble[demo-heuristic+demo-heuristic#2]"
     assert ensemble.info.tier is D
 
 
